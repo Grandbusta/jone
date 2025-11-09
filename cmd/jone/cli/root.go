@@ -15,7 +15,9 @@ var rootCmd = &cobra.Command{
 	Short: "A tool to handle migrations in Golang",
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	// Run: func(cmd *cobra.Command, args []string) {
+
+	// },
 }
 
 func Execute() {
