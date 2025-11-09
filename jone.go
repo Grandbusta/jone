@@ -1,21 +1,18 @@
 package jone
 
-import "github.com/Grandbusta/jone/schema"
-
-type Migration interface {
-	Up(j *Jone)
-	Down(j *Jone)
-}
-
 type Config struct {
-	User string
-	Pass string
-	Host string
-	Port int
-	DB   string
+	Client     string
+	Connection Connection
+	Migrations Migrations
 }
 
-type Jone struct {
-	*schema.Schema
-	*schema.Table
+type Connection struct {
+	User     string
+	Password string
+	Database string
+	Port     string
+}
+
+type Migrations struct {
+	TableName string
 }

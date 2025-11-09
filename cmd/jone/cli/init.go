@@ -168,11 +168,15 @@ func createJoneFolderAndFiles(cwd string) {
 import "github.com/Grandbusta/jone"
 
 var Config = jone.Config{
-	User: "root",
-	Pass: "root",
-	Host: "localhost",
-	Port: 3306,
-	DB:   "jone",
+	Client:     "postgresql",
+	Connection: jone.Connection{
+		User:     "username",
+		Password: "password",
+		Database: "my_db",
+	},
+	Migrations: jone.Migrations{
+		TableName: "jone_migrations",
+	},
 }
 	`
 	_, err = file.WriteString(joneFileContents)
