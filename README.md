@@ -6,3 +6,4 @@ Install the CLI tool
 go install ./cmd/jone
 ```
 
+
