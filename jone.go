@@ -7,7 +7,7 @@ type Migration interface {
 	Down(j *Jone)
 }
 
-type JoneConfig struct {
+type Config struct {
 	User string
 	Pass string
 	Host string

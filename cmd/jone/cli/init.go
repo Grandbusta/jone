@@ -1,12 +1,12 @@
 package cli
 
 import (
-    "bufio"
-    "errors"
-    "fmt"
-    "os"
-    "os/exec"
-    "strings"
+	"bufio"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -32,12 +32,12 @@ func initJone(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if joneDependencyPresent(modFilePath) {
-		fmt.Println("jone is already installed in this project.")
-	} else {
+	if !joneDependencyPresent(modFilePath) {
 		fmt.Println("jone is not installed in this project.")
 		fmt.Println("To add it, run: go get github.com/Grandbusta/jone")
 	}
+	createJoneFolderAndFiles(cwd)
+	fmt.Println("jone init complete.")
 }
 
 // Checks if there is a go.mod file, if not, ask the user to setup a go module
@@ -78,57 +78,107 @@ func findOrCreateGoMod(cwd string) (modFilePath string) {
 			return ""
 		}
 	} else {
-		fmt.Println("Detected go.mod in the current directory.")
 		return cwd + "/go.mod"
 	}
 }
 
 // Checks whether the current project's go.mod lists the jone module.
 func joneDependencyPresent(modPath string) bool {
-    f, err := os.Open(modPath)
-    if err != nil {
-        return false
-    }
-    defer f.Close()
+	f, err := os.Open(modPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
 
-    scanner := bufio.NewScanner(f)
-    inRequireBlock := false
-    for scanner.Scan() {
-        line := strings.TrimSpace(scanner.Text())
+	scanner := bufio.NewScanner(f)
+	inRequireBlock := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
 
-        // Enter a require block
-        if strings.HasPrefix(line, "require (") {
-            inRequireBlock = true
-            continue
-        }
+		// Enter a require block
+		if strings.HasPrefix(line, "require (") {
+			inRequireBlock = true
+			continue
+		}
 
-        // Exit a require block
-        if inRequireBlock && strings.HasPrefix(line, ")") {
-            inRequireBlock = false
-            continue
-        }
+		// Exit a require block
+		if inRequireBlock && strings.HasPrefix(line, ")") {
+			inRequireBlock = false
+			continue
+		}
 
-        // Process lines inside the require block
-        if inRequireBlock {
-            if line == "" || strings.HasPrefix(line, "//") {
-                continue
-            }
-            fields := strings.Fields(line)
-            if len(fields) >= 1 && fields[0] == "github.com/Grandbusta/jone" {
-                return true
-            }
-            continue
-        }
+		// Process lines inside the require block
+		if inRequireBlock {
+			if line == "" || strings.HasPrefix(line, "//") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) >= 1 && fields[0] == "github.com/Grandbusta/jone" {
+				return true
+			}
+			continue
+		}
 
-        // Single-line require
-        if strings.HasPrefix(line, "require ") {
-            rest := strings.TrimSpace(strings.TrimPrefix(line, "require"))
-            fields := strings.Fields(rest)
-            if len(fields) >= 1 && fields[0] == "github.com/Grandbusta/jone" {
-                return true
-            }
-        }
-    }
+		// Single-line require
+		if strings.HasPrefix(line, "require ") {
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "require"))
+			fields := strings.Fields(rest)
+			if len(fields) >= 1 && fields[0] == "github.com/Grandbusta/jone" {
+				return true
+			}
+		}
+	}
 
-    return false
+	return false
+}
+
+func createJoneFolderAndFiles(cwd string) {
+	// Create jone folder
+	joneFolderPath := cwd + "/jone"
+	if _, err := os.Stat(joneFolderPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			os.Mkdir(joneFolderPath, 0755)
+		} else {
+			fmt.Printf("Error checking jone folder: %v\n", err)
+			return
+		}
+	}
+
+	// Create a jonefile.go file
+	joneFilePath := joneFolderPath + "/jonefile.go"
+	if _, err := os.Stat(joneFilePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			os.Create(joneFilePath)
+		} else {
+			fmt.Printf("Error checking jonefile.go: %v\n", err)
+			return
+		}
+	}
+
+	// Write jonefile.go contents
+	file, err := os.OpenFile(joneFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Printf("Error opening jonefile.go: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	joneFileContents := `package jone
+
+import "github.com/Grandbusta/jone"
+
+var Config = jone.Config{
+	User: "root",
+	Pass: "root",
+	Host: "localhost",
+	Port: 3306,
+	DB:   "jone",
+}
+	`
+	_, err = file.WriteString(joneFileContents)
+	if err != nil {
+		fmt.Printf("Error writing to jonefile.go: %v\n", err)
+		return
+	}
+
 }
