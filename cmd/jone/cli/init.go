@@ -11,8 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// If go.mod file exists, confirm if jone is already installed, if not, ask the user to install jone with go install github.com/Grandbusta/jone@latest
-
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initializes a jone project",
@@ -184,5 +182,4 @@ var Config = jone.Config{
 		fmt.Printf("Error writing to jonefile.go: %v\n", err)
 		return
 	}
-
 }

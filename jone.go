@@ -11,6 +11,7 @@ type Connection struct {
 	Password string
 	Database string
 	Port     string
+	Host     string
 }
 
 type Migrations struct {
