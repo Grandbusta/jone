@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -21,15 +23,23 @@ var migrateMakeCmd = &cobra.Command{
 }
 
 const (
-	joneFolderPath = "jone"
-	jonefilePath   = "jone/jonefile.go"
-	migrationsPath = "jone/migrations"
+	joneFolderPath     = "jone"
+	jonefilePath       = "jone/jonefile.go"
+	migrationsPath     = "jone/migrations"
+	registryFolderPath = "jone/migrations/registry"
+	registryFilePath   = "jone/migrations/registry/registry.go"
 )
 
 func migrateJone(cmd *cobra.Command, args []string) {
 	if len(args) == 0 {
 		fmt.Println("Please provide a migration name")
 		return
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get working directory: %v\n", err)
+		os.Exit(1)
 	}
 
 	if _, err := os.Stat(joneFolderPath); err != nil {
@@ -54,13 +64,79 @@ func migrateJone(cmd *cobra.Command, args []string) {
 
 	if _, err := os.Stat(migrationsPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			os.Mkdir("jone/migrations", 0755)
+			os.Mkdir(migrationsPath, 0755)
 		} else {
 			fmt.Printf("Error checking migrations folder: %v\n", err)
 			return
 		}
 	}
 
-	fmt.Printf("migrate:make running perfectly now for %s\n", args[0])
+	createMigration(cwd, args[0])
+
+	// if _, err := os.Stat(registryFolderPath); err != nil {
+	// 	if errors.Is(err, os.ErrNotExist) {
+	// 		os.Mkdir(registryFolderPath, 0755)
+	// 	} else {
+	// 		fmt.Printf("Error checking registry folder: %v\n", err)
+	// 		return
+	// 	}
+	// }
+
+	// if _, err := os.Stat(registryFilePath); err != nil {
+	// 	if errors.Is(err, os.ErrNotExist) {
+	// 		os.Create(registryFilePath)
+	// 	} else {
+	// 		fmt.Printf("Error checking registry file: %v\n", err)
+	// 		return
+	// 	}
+	// }
+
+	// Write registry.go contents
+	// file, err := os.OpenFile(registryFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// if err != nil {
+	// 	fmt.Printf("Error opening registry.go: %v\n", err)
+	// 	return
+	// }
+	// defer file.Close()
+
+	// registryFileContents := `
+
+	// `
+
+}
+
+func createMigration(cwd string, name string) {
+	ts := time.Now().UTC().Format("20060102150405")
+	folderName := fmt.Sprintf("%s_%s", ts, name)
+	folderPath := filepath.Join(cwd, migrationsPath, folderName)
+
+	if err := os.Mkdir(folderPath, 0755); err != nil {
+		fmt.Printf("Error creating migration: %v\n", err)
+		return
+	}
+
+	stub := fmt.Sprintf(`package mig
+
+import (
+	"context"
+
+	%q
+)
+
+func Up(ctx context.Context, s jone.Schema) error {
+	// TODO: implement Up migration
+	return nil
+}
+
+func Down(ctx context.Context, s jone.Schema) error {
+	// TODO: implement Down migration
+	return nil
+}
+`, "github.com/Grandbusta/jone")
+
+	if err := os.WriteFile(filepath.Join(folderPath, "mig.go"), []byte(stub), 0o644); err != nil {
+		fmt.Printf("Error writing migration file: %v\n", err)
+		return
+	}
 
 }
