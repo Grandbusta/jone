@@ -7,30 +7,26 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Grandbusta/jone/cmd/jone/templates"
 	"github.com/spf13/cobra"
 )
 
 /*
-migrate:make needs an argument of the migration name e.g jone migrate:make create_users, if there is no argument, it will ask the user to enter the name of the migration
-It checks if the jone folder exists and then check if the jonefile.go exists, if not it tells the user to run jone init first.
-If there is a jone folder and jonefile.go, it checks for the migrations folder and if it does not exists, it creates it
+migrate:make needs an argument of the migration name e.g jone migrate:make create_users,
+if there is no argument, it will ask the user to enter the name of the migration.
+It checks if the jone folder exists and then check if the jonefile.go exists,
+if not it tells the user to run jone init first.
+If there is a jone folder and jonefile.go, it checks for the migrations folder
+and if it does not exist, it creates it.
 */
 var migrateMakeCmd = &cobra.Command{
 	Use:   "migrate:make",
-	Short: "Migrates the database",
-	Long:  `Migrates the database`,
-	Run:   migrateJone,
+	Short: "Creates a new migration",
+	Long:  `Creates a new migration file in the jone/migrations folder`,
+	Run:   migrateMakeJone,
 }
 
-const (
-	joneFolderPath     = "jone"
-	jonefilePath       = "jone/jonefile.go"
-	migrationsPath     = "jone/migrations"
-	registryFolderPath = "jone/migrations/registry"
-	registryFilePath   = "jone/migrations/registry/registry.go"
-)
-
-func migrateJone(cmd *cobra.Command, args []string) {
+func migrateMakeJone(cmd *cobra.Command, args []string) {
 	if len(args) == 0 {
 		fmt.Println("Please provide a migration name")
 		return
@@ -42,99 +38,72 @@ func migrateJone(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if _, err := os.Stat(joneFolderPath); err != nil {
+	// Check jone folder exists
+	if _, err := os.Stat(JoneFolderPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Println("jone folder not found, please run jone init first")
 			return
-		} else {
-			fmt.Printf("Error checking jone folder: %v\n", err)
-			return
 		}
+		fmt.Printf("Error checking jone folder: %v\n", err)
+		return
 	}
 
-	if _, err := os.Stat(jonefilePath); err != nil {
+	// Check jonefile.go exists
+	if _, err := os.Stat(JoneFilePath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Println("jonefile.go not found in jone folder. Please run jone init first")
 			return
-		} else {
-			fmt.Printf("Error checking jonefile.go: %v\n", err)
-			return
 		}
+		fmt.Printf("Error checking jonefile.go: %v\n", err)
+		return
 	}
 
-	if _, err := os.Stat(migrationsPath); err != nil {
+	// Create migrations folder if needed
+	if _, err := os.Stat(MigrationsPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			os.Mkdir(migrationsPath, 0755)
+			if err := os.Mkdir(MigrationsPath, 0755); err != nil {
+				fmt.Printf("Error creating migrations folder: %v\n", err)
+				return
+			}
 		} else {
 			fmt.Printf("Error checking migrations folder: %v\n", err)
 			return
 		}
 	}
 
-	createMigration(cwd, args[0])
-
-	// if _, err := os.Stat(registryFolderPath); err != nil {
-	// 	if errors.Is(err, os.ErrNotExist) {
-	// 		os.Mkdir(registryFolderPath, 0755)
-	// 	} else {
-	// 		fmt.Printf("Error checking registry folder: %v\n", err)
-	// 		return
-	// 	}
-	// }
-
-	// if _, err := os.Stat(registryFilePath); err != nil {
-	// 	if errors.Is(err, os.ErrNotExist) {
-	// 		os.Create(registryFilePath)
-	// 	} else {
-	// 		fmt.Printf("Error checking registry file: %v\n", err)
-	// 		return
-	// 	}
-	// }
-
-	// Write registry.go contents
-	// file, err := os.OpenFile(registryFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	// if err != nil {
-	// 	fmt.Printf("Error opening registry.go: %v\n", err)
-	// 	return
-	// }
-	// defer file.Close()
-
-	// registryFileContents := `
-
-	// `
-
-}
-
-func createMigration(cwd string, name string) {
-	ts := time.Now().UTC().Format("20060102150405")
-	folderName := fmt.Sprintf("%s_%s", ts, name)
-	folderPath := filepath.Join(cwd, migrationsPath, folderName)
-
-	if err := os.Mkdir(folderPath, 0755); err != nil {
+	if err := createMigration(cwd, args[0]); err != nil {
 		fmt.Printf("Error creating migration: %v\n", err)
 		return
 	}
 
-	stub := fmt.Sprintf(`package mig
-
-import (
-	"context"
-
-	%q
-)
-
-func Up(ctx context.Context, s jone.Schema) {
-
-}
-
-func Down(ctx context.Context, s jone.Schema) {
-
-}
-`, "github.com/Grandbusta/jone")
-
-	if err := os.WriteFile(filepath.Join(folderPath, "migration.go"), []byte(stub), 0o644); err != nil {
-		fmt.Printf("Error writing migration file: %v\n", err)
+	if err := RegenerateRegistry(cwd); err != nil {
+		fmt.Printf("Error regenerating registry: %v\n", err)
 		return
 	}
 
+	fmt.Printf("Migration %s created successfully\n", args[0])
+}
+
+func createMigration(cwd string, name string) error {
+	ts := time.Now().UTC().Format("20060102150405")
+	folderName := fmt.Sprintf("%s_%s", ts, name)
+	folderPath := filepath.Join(cwd, MigrationsPath, folderName)
+
+	if err := os.Mkdir(folderPath, 0755); err != nil {
+		return fmt.Errorf("creating migration folder: %w", err)
+	}
+
+	stub, err := templates.RenderMigration(templates.MigrationStubData{
+		RuntimePackage: RuntimePackage,
+	})
+	if err != nil {
+		return fmt.Errorf("rendering migration stub: %w", err)
+	}
+
+	migrationFile := filepath.Join(folderPath, "migration.go")
+	if err := os.WriteFile(migrationFile, stub, 0o644); err != nil {
+		return fmt.Errorf("writing migration file: %w", err)
+	}
+
+	return nil
 }

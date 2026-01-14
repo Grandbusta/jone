@@ -18,6 +18,12 @@ type Migrations struct {
 	TableName string
 }
 
+type Registration struct {
+	Name string
+	Up   func(Schema)
+	Down func(Schema)
+}
+
 type CreateTableBuilder struct {
 	Table *Table
 }
