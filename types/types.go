@@ -2,6 +2,24 @@
 // This package has no internal dependencies to prevent import cycles.
 package types
 
+// ActionType represents the type of table alteration action.
+type ActionType string
+
+const (
+	ActionDropColumn   ActionType = "drop_column"
+	ActionAddColumn    ActionType = "add_column"
+	ActionRenameColumn ActionType = "rename_column"
+	ActionModifyColumn ActionType = "modify_column"
+)
+
+// TableAction represents a single alteration operation on a table.
+type TableAction struct {
+	Type    ActionType
+	Column  *Column // For add/modify operations
+	Name    string  // Column name for drop, old name for rename
+	NewName string  // New name for rename operations
+}
+
 // Column represents a database column definition.
 type Column struct {
 	Name         string
@@ -20,4 +38,5 @@ type Column struct {
 type Table struct {
 	Name    string
 	Columns []*Column
+	Actions []*TableAction
 }

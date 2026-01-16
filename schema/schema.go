@@ -43,7 +43,22 @@ func (s *Schema) SetDB(db *sql.DB) {
 func (s *Schema) Table(name string, builder func(t *Table)) error {
 	t := NewTable(name)
 	builder(t)
-	// TODO: Implement full SQL generation
+
+	// Generate SQL for each action
+	statements := s.dialect.AlterTableSQL(name, t.Actions)
+
+	for _, sql := range statements {
+		fmt.Printf("SQL: %s\n", sql)
+		if s.db != nil {
+			_, err := s.db.Exec(sql)
+			if err != nil {
+				return fmt.Errorf("executing ALTER TABLE: %w", err)
+			}
+		} else {
+			fmt.Printf("[DRY RUN] Would execute: %s\n", sql)
+		}
+	}
+
 	return nil
 }
 

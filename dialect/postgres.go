@@ -132,3 +132,41 @@ func (d *PostgresDialect) formatDefault(value any) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
+
+// AlterTableSQL generates ALTER TABLE statements for all actions.
+func (d *PostgresDialect) AlterTableSQL(tableName string, actions []*types.TableAction) []string {
+	var statements []string
+	for _, action := range actions {
+		switch action.Type {
+		case types.ActionDropColumn:
+			statements = append(statements, d.DropColumnSQL(tableName, action.Name))
+		case types.ActionAddColumn:
+			statements = append(statements, d.AddColumnSQL(tableName, action.Column))
+		case types.ActionRenameColumn:
+			statements = append(statements, d.RenameColumnSQL(tableName, action.Name, action.NewName))
+		}
+	}
+	return statements
+}
+
+// DropColumnSQL generates an ALTER TABLE DROP COLUMN statement.
+func (d *PostgresDialect) DropColumnSQL(tableName, columnName string) string {
+	return fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(columnName))
+}
+
+// AddColumnSQL generates an ALTER TABLE ADD COLUMN statement.
+func (d *PostgresDialect) AddColumnSQL(tableName string, column *types.Column) string {
+	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;",
+		d.QuoteIdentifier(tableName),
+		d.ColumnDefinitionSQL(column))
+}
+
+// RenameColumnSQL generates an ALTER TABLE RENAME COLUMN statement.
+func (d *PostgresDialect) RenameColumnSQL(tableName, oldName, newName string) string {
+	return fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(oldName),
+		d.QuoteIdentifier(newName))
+}

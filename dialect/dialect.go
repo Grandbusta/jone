@@ -22,6 +22,18 @@ type Dialect interface {
 
 	// QuoteIdentifier quotes an identifier (table/column name) for this dialect.
 	QuoteIdentifier(name string) string
+
+	// AlterTableSQL generates ALTER TABLE statements for all actions.
+	AlterTableSQL(tableName string, actions []*types.TableAction) []string
+
+	// DropColumnSQL generates an ALTER TABLE DROP COLUMN statement.
+	DropColumnSQL(tableName, columnName string) string
+
+	// AddColumnSQL generates an ALTER TABLE ADD COLUMN statement.
+	AddColumnSQL(tableName string, column *types.Column) string
+
+	// RenameColumnSQL generates an ALTER TABLE RENAME COLUMN statement.
+	RenameColumnSQL(tableName, oldName, newName string) string
 }
 
 // GetDialect returns a dialect implementation by name.

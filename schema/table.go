@@ -1,6 +1,8 @@
 package schema
 
-import "github.com/Grandbusta/jone/types"
+import (
+	"github.com/Grandbusta/jone/types"
+)
 
 // Table wraps types.Table and provides builder methods.
 type Table struct {
@@ -15,14 +17,46 @@ func NewTable(name string) *Table {
 }
 
 // addColumn is a helper that creates a column with the given name and type.
+// It appends to Columns (for CreateTable) and records an ActionAddColumn (for Table/ALTER).
 func (t *Table) addColumn(name, dataType string) *Column {
 	col := &types.Column{Name: name, DataType: dataType}
 	t.Columns = append(t.Columns, col)
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:   types.ActionAddColumn,
+		Column: col,
+	})
 	return &Column{Column: col}
+}
+
+// DropColumn records an action to drop a column.
+func (t *Table) DropColumn(name string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type: types.ActionDropColumn,
+		Name: name,
+	})
+	return t
+}
+
+func (t *Table) DropColumns(names ...string) *Table {
+	for _, name := range names {
+		t.DropColumn(name)
+	}
+	return t
+}
+
+// RenameColumn records an action to rename a column.
+func (t *Table) RenameColumn(oldName, newName string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:    types.ActionRenameColumn,
+		Name:    oldName,
+		NewName: newName,
+	})
+	return t
 }
 
 // String creates a VARCHAR column.
 func (t *Table) String(name string) *Column {
+	// TODO: Support length
 	return t.addColumn(name, "varchar")
 }
 
