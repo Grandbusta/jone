@@ -28,7 +28,7 @@ func (t *Table) addColumn(name, dataType string) *Column {
 	return &Column{Column: col}
 }
 
-// DropColumn records an action to drop a column.
+// DropColumn drops a column.
 func (t *Table) DropColumn(name string) *Table {
 	t.Actions = append(t.Actions, &types.TableAction{
 		Type: types.ActionDropColumn,
@@ -37,6 +37,7 @@ func (t *Table) DropColumn(name string) *Table {
 	return t
 }
 
+// DropColumns drops multiple columns.
 func (t *Table) DropColumns(names ...string) *Table {
 	for _, name := range names {
 		t.DropColumn(name)
@@ -44,7 +45,44 @@ func (t *Table) DropColumns(names ...string) *Table {
 	return t
 }
 
-// RenameColumn records an action to rename a column.
+// SetNullable sets a column as nullable.
+func (t *Table) SetNullable(column string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type: types.ActionDropColumnNotNull,
+		Name: column,
+	})
+	return t
+}
+
+// DropNullable sets a column as not nullable.
+func (t *Table) DropNullable(column string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type: types.ActionSetColumnNotNull,
+		Name: column,
+	})
+	return t
+}
+
+// SetDefault sets the default value for a column.
+func (t *Table) SetDefault(column string, defaultValue any) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:         types.ActionSetColumnDefault,
+		Name:         column,
+		DefaultValue: defaultValue,
+	})
+	return t
+}
+
+// DropDefault drops the default value for a column.
+func (t *Table) DropDefault(column string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type: types.ActionDropColumnDefault,
+		Name: column,
+	})
+	return t
+}
+
+// RenameColumn renames a column.
 func (t *Table) RenameColumn(oldName, newName string) *Table {
 	t.Actions = append(t.Actions, &types.TableAction{
 		Type:    types.ActionRenameColumn,

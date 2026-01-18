@@ -6,18 +6,23 @@ package types
 type ActionType string
 
 const (
-	ActionDropColumn   ActionType = "drop_column"
-	ActionAddColumn    ActionType = "add_column"
-	ActionRenameColumn ActionType = "rename_column"
-	ActionModifyColumn ActionType = "modify_column"
+	ActionDropColumn        ActionType = "drop_column"
+	ActionAddColumn         ActionType = "add_column"
+	ActionRenameColumn      ActionType = "rename_column"
+	ActionChangeColumnType  ActionType = "change_column_type"
+	ActionSetColumnNotNull  ActionType = "set_column_not_null"
+	ActionDropColumnNotNull ActionType = "drop_column_not_null"
+	ActionSetColumnDefault  ActionType = "set_column_default"
+	ActionDropColumnDefault ActionType = "drop_column_default"
 )
 
 // TableAction represents a single alteration operation on a table.
 type TableAction struct {
-	Type    ActionType
-	Column  *Column // For add/modify operations
-	Name    string  // Column name for drop, old name for rename
-	NewName string  // New name for rename operations
+	Type         ActionType
+	Column       *Column // For add/modify operations
+	Name         string  // Column name for drop, old name for rename
+	NewName      string  // New name for rename operations
+	DefaultValue any
 }
 
 // Column represents a database column definition.

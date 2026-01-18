@@ -144,6 +144,16 @@ func (d *PostgresDialect) AlterTableSQL(tableName string, actions []*types.Table
 			statements = append(statements, d.AddColumnSQL(tableName, action.Column))
 		case types.ActionRenameColumn:
 			statements = append(statements, d.RenameColumnSQL(tableName, action.Name, action.NewName))
+		case types.ActionChangeColumnType:
+			statements = append(statements, d.ChangeColumnTypeSQL(tableName, action.Column))
+		case types.ActionSetColumnNotNull:
+			statements = append(statements, d.SetColumnNotNullSQL(tableName, action.Name))
+		case types.ActionDropColumnNotNull:
+			statements = append(statements, d.DropColumnNotNullSQL(tableName, action.Name))
+		case types.ActionSetColumnDefault:
+			statements = append(statements, d.SetColumnDefaultSQL(tableName, action.Name, action.DefaultValue))
+		case types.ActionDropColumnDefault:
+			statements = append(statements, d.DropColumnDefaultSQL(tableName, action.Name))
 		}
 	}
 	return statements
@@ -169,4 +179,41 @@ func (d *PostgresDialect) RenameColumnSQL(tableName, oldName, newName string) st
 		d.QuoteIdentifier(tableName),
 		d.QuoteIdentifier(oldName),
 		d.QuoteIdentifier(newName))
+}
+
+// ChangeColumnTypeSQL generates an ALTER TABLE ALTER COLUMN TYPE statement.
+func (d *PostgresDialect) ChangeColumnTypeSQL(tableName string, column *types.Column) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(column.Name),
+		d.mapDataType(column.DataType))
+}
+
+// SetColumnNotNullSQL generates an ALTER TABLE ALTER COLUMN SET NOT NULL statement.
+func (d *PostgresDialect) SetColumnNotNullSQL(tableName, columnName string) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(columnName))
+}
+
+// DropColumnNotNullSQL generates an ALTER TABLE ALTER COLUMN DROP NOT NULL statement.
+func (d *PostgresDialect) DropColumnNotNullSQL(tableName, columnName string) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(columnName))
+}
+
+// SetColumnDefaultSQL generates an ALTER TABLE ALTER COLUMN SET DEFAULT statement.
+func (d *PostgresDialect) SetColumnDefaultSQL(tableName, columnName string, defaultValue any) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(columnName),
+		d.formatDefault(defaultValue))
+}
+
+// DropColumnDefaultSQL generates an ALTER TABLE ALTER COLUMN DROP DEFAULT statement.
+func (d *PostgresDialect) DropColumnDefaultSQL(tableName, columnName string) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(columnName))
 }

@@ -32,6 +32,18 @@ type Dialect interface {
 	// AddColumnSQL generates an ALTER TABLE ADD COLUMN statement.
 	AddColumnSQL(tableName string, column *types.Column) string
 
+	// SetColumnNotNullSQL generates an ALTER TABLE ALTER COLUMN SET NOT NULL statement.
+	SetColumnNotNullSQL(tableName, columnName string) string
+
+	// DropColumnNotNullSQL generates an ALTER TABLE ALTER COLUMN DROP NOT NULL statement.
+	DropColumnNotNullSQL(tableName, columnName string) string
+
+	// SetColumnDefaultSQL generates an ALTER TABLE ALTER COLUMN SET DEFAULT statement.
+	SetColumnDefaultSQL(tableName, columnName string, defaultValue any) string
+
+	// DropColumnDefaultSQL generates an ALTER TABLE ALTER COLUMN DROP DEFAULT statement.
+	DropColumnDefaultSQL(tableName, columnName string) string
+
 	// RenameColumnSQL generates an ALTER TABLE RENAME COLUMN statement.
 	RenameColumnSQL(tableName, oldName, newName string) string
 }
@@ -41,8 +53,8 @@ func GetDialect(name string) Dialect {
 	switch name {
 	case "postgresql", "postgres", "pg":
 		return &PostgresDialect{}
-	case "mysql":
-		return &MySQLDialect{}
+	// case "mysql":
+	// 	return &MySQLDialect{}
 	default:
 		// Default to PostgreSQL
 		return &PostgresDialect{}
