@@ -17,6 +17,9 @@ type Dialect interface {
 	// DropTableIfExistsSQL generates a DROP TABLE IF EXISTS statement.
 	DropTableIfExistsSQL(name string) string
 
+	// CreateTableIfNotExistsSQL generates a CREATE TABLE IF NOT EXISTS statement.
+	CreateTableIfNotExistsSQL(table *types.Table) string
+
 	// ColumnDefinitionSQL generates the column definition for use in CREATE TABLE.
 	ColumnDefinitionSQL(col *types.Column) string
 
@@ -53,6 +56,21 @@ type Dialect interface {
 	// DropIndexSQL generates a DROP INDEX statement.
 	// MySQL requires tableName; PostgreSQL ignores it.
 	DropIndexSQL(tableName, indexName string) string
+
+	// AddForeignKeySQL generates an ALTER TABLE ADD CONSTRAINT FOREIGN KEY statement.
+	AddForeignKeySQL(tableName string, fk *types.ForeignKey) string
+
+	// DropForeignKeySQL generates an ALTER TABLE DROP CONSTRAINT/FOREIGN KEY statement.
+	DropForeignKeySQL(tableName, fkName string) string
+
+	// HasTableSQL returns SQL to check if a table exists (returns count).
+	HasTableSQL(tableName string) string
+
+	// HasColumnSQL returns SQL to check if a column exists (returns count).
+	HasColumnSQL(tableName, columnName string) string
+
+	// CommentColumnSQL returns SQL to add a comment to a column.
+	CommentColumnSQL(tableName, columnName, comment string) string
 }
 
 // GetDialect returns a dialect implementation by name.

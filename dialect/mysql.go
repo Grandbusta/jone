@@ -44,6 +44,20 @@ func (d *MySQLDialect) DropTableIfExistsSQL(name string) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS %s;", d.QuoteIdentifier(name))
 }
 
+// CreateTableIfNotExistsSQL generates a CREATE TABLE IF NOT EXISTS statement.
+func (d *MySQLDialect) CreateTableIfNotExistsSQL(table *types.Table) string {
+	var columns []string
+	for _, col := range table.Columns {
+		columns = append(columns, d.ColumnDefinitionSQL(col))
+	}
+
+	return fmt.Sprintf(
+		"CREATE TABLE IF NOT EXISTS %s (\n  %s\n);",
+		d.QuoteIdentifier(table.Name),
+		strings.Join(columns, ",\n  "),
+	)
+}
+
 // ColumnDefinitionSQL generates the column definition SQL.
 func (d *MySQLDialect) ColumnDefinitionSQL(col *types.Column) string {
 	var parts []string
@@ -65,6 +79,9 @@ func (d *MySQLDialect) ColumnDefinitionSQL(col *types.Column) string {
 	}
 	if col.IsUnique && !col.IsPrimaryKey {
 		parts = append(parts, "UNIQUE")
+	}
+	if col.Comment != "" {
+		parts = append(parts, fmt.Sprintf("COMMENT '%s'", col.Comment))
 	}
 
 	return strings.Join(parts, " ")
@@ -176,6 +193,10 @@ func (d *MySQLDialect) AlterTableSQL(tableName string, actions []*types.TableAct
 			statements = append(statements, d.CreateIndexSQL(tableName, action.Index))
 		case types.ActionDropIndex:
 			statements = append(statements, d.DropIndexSQL(tableName, action.Index.Name))
+		case types.ActionAddForeignKey:
+			statements = append(statements, d.AddForeignKeySQL(tableName, action.ForeignKey))
+		case types.ActionDropForeignKey:
+			statements = append(statements, d.DropForeignKeySQL(tableName, action.ForeignKey.Name))
 		}
 	}
 	return statements
@@ -206,6 +227,32 @@ func (d *MySQLDialect) DropIndexSQL(tableName, indexName string) string {
 	return fmt.Sprintf("DROP INDEX %s ON %s;",
 		d.QuoteIdentifier(indexName),
 		d.QuoteIdentifier(tableName))
+}
+
+// AddForeignKeySQL generates an ALTER TABLE ADD CONSTRAINT FOREIGN KEY statement.
+func (d *MySQLDialect) AddForeignKeySQL(tableName string, fk *types.ForeignKey) string {
+	sql := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s)",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(fk.Name),
+		d.QuoteIdentifier(fk.Column),
+		d.QuoteIdentifier(fk.RefTable),
+		d.QuoteIdentifier(fk.RefColumn))
+
+	if fk.OnDelete != "" {
+		sql += " ON DELETE " + fk.OnDelete
+	}
+	if fk.OnUpdate != "" {
+		sql += " ON UPDATE " + fk.OnUpdate
+	}
+	return sql + ";"
+}
+
+// DropForeignKeySQL generates an ALTER TABLE DROP FOREIGN KEY statement.
+// MySQL uses DROP FOREIGN KEY instead of DROP CONSTRAINT.
+func (d *MySQLDialect) DropForeignKeySQL(tableName, fkName string) string {
+	return fmt.Sprintf("ALTER TABLE %s DROP FOREIGN KEY %s;",
+		d.QuoteIdentifier(tableName),
+		d.QuoteIdentifier(fkName))
 }
 
 // DropColumnSQL generates an ALTER TABLE DROP COLUMN statement.
@@ -274,4 +321,20 @@ func (d *MySQLDialect) DropColumnDefaultSQL(tableName, columnName string) string
 	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
 		d.QuoteIdentifier(tableName),
 		d.QuoteIdentifier(columnName))
+}
+
+// HasTableSQL returns SQL to check if a table exists in MySQL.
+func (d *MySQLDialect) HasTableSQL(tableName string) string {
+	return fmt.Sprintf(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '%s'`, tableName)
+}
+
+// HasColumnSQL returns SQL to check if a column exists in MySQL.
+func (d *MySQLDialect) HasColumnSQL(tableName, columnName string) string {
+	return fmt.Sprintf(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '%s' AND column_name = '%s'`, tableName, columnName)
+}
+
+// CommentColumnSQL returns SQL to add a comment to a column in MySQL.
+// Note: MySQL supports inline COMMENT in CREATE TABLE.
+func (d *MySQLDialect) CommentColumnSQL(tableName, columnName, comment string) string {
+	return ""
 }

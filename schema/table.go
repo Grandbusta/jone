@@ -156,6 +156,37 @@ func (t *Table) DropUniqueByName(name string) *Table {
 	return t
 }
 
+// Foreign creates a foreign key constraint on the specified column.
+// Returns a ForeignKeyBuilder for chaining (e.g., .References(), .OnDelete()).
+func (t *Table) Foreign(column string) *ForeignKeyBuilder {
+	b := &ForeignKeyBuilder{table: t, column: column}
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:       types.ActionAddForeignKey,
+		ForeignKey: b.build(),
+	})
+	return b
+}
+
+// DropForeign drops a foreign key constraint by column (auto-generates the FK name).
+// Uses the same naming convention as Foreign(): fk_tablename_column
+func (t *Table) DropForeign(column string) *Table {
+	name := "fk_" + t.Name + "_" + column
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:       types.ActionDropForeignKey,
+		ForeignKey: &types.ForeignKey{Name: name},
+	})
+	return t
+}
+
+// DropForeignByName drops a foreign key constraint by its explicit name.
+func (t *Table) DropForeignByName(name string) *Table {
+	t.Actions = append(t.Actions, &types.TableAction{
+		Type:       types.ActionDropForeignKey,
+		ForeignKey: &types.ForeignKey{Name: name},
+	})
+	return t
+}
+
 // String creates a VARCHAR column.
 func (t *Table) String(name string) *Column {
 	// TODO: Support length

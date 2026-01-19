@@ -16,6 +16,8 @@ const (
 	ActionDropColumnDefault ActionType = "drop_column_default"
 	ActionCreateIndex       ActionType = "create_index"
 	ActionDropIndex         ActionType = "drop_index"
+	ActionAddForeignKey     ActionType = "add_foreign_key"
+	ActionDropForeignKey    ActionType = "drop_foreign_key"
 )
 
 // Index represents a database index definition.
@@ -27,6 +29,17 @@ type Index struct {
 	TableName string   // For auto-generating name
 }
 
+// ForeignKey represents a database foreign key constraint.
+type ForeignKey struct {
+	Name      string // FK constraint name (auto-generated if empty)
+	Column    string // Local column
+	RefTable  string // Referenced table
+	RefColumn string // Referenced column
+	OnDelete  string // CASCADE, SET NULL, RESTRICT, NO ACTION
+	OnUpdate  string // CASCADE, SET NULL, RESTRICT, NO ACTION
+	TableName string // For auto-generating name
+}
+
 // TableAction represents a single alteration operation on a table.
 type TableAction struct {
 	Type         ActionType
@@ -34,7 +47,8 @@ type TableAction struct {
 	Name         string  // Column name for drop, old name for rename
 	NewName      string  // New name for rename operations
 	DefaultValue any
-	Index        *Index // For index operations
+	Index        *Index      // For index operations
+	ForeignKey   *ForeignKey // For foreign key operations
 }
 
 // Column represents a database column definition.
@@ -52,6 +66,7 @@ type Column struct {
 	HasDefault   bool
 	RefTable     string
 	RefColumn    string
+	Comment      string // Column comment/description
 }
 
 // Table represents a database table definition.

@@ -68,3 +68,9 @@ func (c *Column) Scale(s int) *Column {
 	c.Column.Scale = s
 	return c
 }
+
+// Comment sets a comment/description for the column.
+func (c *Column) Comment(comment string) *Column {
+	c.Column.Comment = comment
+	return c
+}

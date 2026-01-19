@@ -77,8 +77,37 @@ func (s *Schema) CreateTable(name string, builder func(t *Table)) error {
 			return fmt.Errorf("executing CREATE TABLE: %w", err)
 		}
 		fmt.Printf("Created table: %s\n", name)
+
+		// Execute COMMENT ON COLUMN for columns with comments (PostgreSQL needs separate statement)
+		for _, col := range t.Columns {
+			if col.Comment != "" {
+				commentSQL := s.dialect.CommentColumnSQL(name, col.Name, col.Comment)
+				fmt.Printf("SQL: %s\n", commentSQL)
+				if _, err := s.db.Exec(commentSQL); err != nil {
+					return fmt.Errorf("executing COMMENT ON COLUMN: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// CreateTableIfNotExists creates a new table if it doesn't already exist.
+func (s *Schema) CreateTableIfNotExists(name string, builder func(t *Table)) error {
+	t := NewTable(name)
+	builder(t)
+
+	sql := s.dialect.CreateTableIfNotExistsSQL(t.Table)
+	fmt.Printf("SQL: %s\n", sql)
+
+	if s.db != nil {
+		_, err := s.db.Exec(sql)
+		if err != nil {
+			return fmt.Errorf("executing CREATE TABLE IF NOT EXISTS: %w", err)
+		}
+		fmt.Printf("Created table (if not exists): %s\n", name)
 	} else {
-		fmt.Printf("[DRY RUN] Would create table: %s with %d columns\n", name, len(t.Columns))
+		fmt.Printf("[DRY RUN] Would create table if not exists: %s with %d columns\n", name, len(t.Columns))
 	}
 
 	return nil
@@ -142,12 +171,26 @@ func (s *Schema) RenameTable(oldName, newName string) error {
 
 // HasTable checks if a table exists.
 func (s *Schema) HasTable(name string) bool {
-	// TODO: Query information_schema with proper dialect support
-	return false
+	if s.db == nil {
+		return false
+	}
+	sql := s.dialect.HasTableSQL(name)
+	var count int
+	if err := s.db.QueryRow(sql).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
 }
 
 // HasColumn checks if a column exists in a table.
 func (s *Schema) HasColumn(table, column string) bool {
-	// TODO: Query information_schema with proper dialect support
-	return false
+	if s.db == nil {
+		return false
+	}
+	sql := s.dialect.HasColumnSQL(table, column)
+	var count int
+	if err := s.db.QueryRow(sql).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
 }
