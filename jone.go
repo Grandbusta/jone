@@ -39,7 +39,7 @@ var NewSchema = schema.New
 type Registration = migration.Registration
 
 // RunUp executes all Up migrations in order.
-var RunUp = migration.RunUp
+var RunLatest = migration.RunLatest
 
 // RunDown executes all Down migrations in reverse order.
 var RunDown = migration.RunDown

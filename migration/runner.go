@@ -8,7 +8,7 @@ import (
 )
 
 // RunUp executes all Up migrations in order using the provided config.
-func RunUp(cfg *config.Config, registrations []Registration) error {
+func RunLatest(cfg *config.Config, registrations []Registration) error {
 	s := schema.New(cfg)
 
 	// TODO: Connect to database using cfg.Connection

@@ -7,15 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var migrateUpCmd = &cobra.Command{
-	Use:   "migrate:up",
+var migrateLatestCmd = &cobra.Command{
+	Use:   "migrate:latest",
 	Short: "Runs all pending migrations",
 	Long:  `Runs all pending migrations by generating and executing a runner`,
-	Run:   migrateUpJone,
+	Run:   migrateLatestJone,
 }
 
-func migrateUpJone(cmd *cobra.Command, args []string) {
-	if err := runMigrations("migrate:up"); err != nil {
+func migrateLatestJone(cmd *cobra.Command, args []string) {
+	if err := runMigrations("migrate:latest"); err != nil {
 		fmt.Printf("Error running migrations: %v\n", err)
 		os.Exit(1)
 	}

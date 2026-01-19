@@ -25,15 +25,15 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: _runner <migrate:up|migrate:down>")
+		fmt.Println("Usage: _runner <migrate:latest|migrate:down>")
 		os.Exit(1)
 	}
 
 	cfg := &joneconfig.Config
 
 	switch os.Args[1] {
-	case "migrate:up":
-		if err := jone.RunUp(cfg, registry.Registrations); err != nil {
+	case "migrate:latest":
+		if err := jone.RunLatest(cfg, registry.Registrations); err != nil {
 			fmt.Printf("Migration failed: %v\n", err)
 			os.Exit(1)
 		}

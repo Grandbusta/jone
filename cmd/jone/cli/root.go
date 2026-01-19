@@ -24,6 +24,6 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(migrateMakeCmd)
-	rootCmd.AddCommand(migrateUpCmd)
+	rootCmd.AddCommand(migrateLatestCmd)
 	rootCmd.AddCommand(migrateDownCmd)
 }
