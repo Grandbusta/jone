@@ -49,7 +49,7 @@ func (d *PostgresDialect) ColumnDefinitionSQL(col *types.Column) string {
 	var parts []string
 
 	parts = append(parts, d.QuoteIdentifier(col.Name))
-	parts = append(parts, d.mapDataType(col.DataType))
+	parts = append(parts, d.mapDataType(col))
 
 	if col.IsPrimaryKey {
 		parts = append(parts, "PRIMARY KEY")
@@ -75,10 +75,18 @@ func (d *PostgresDialect) ColumnDefinitionSQL(col *types.Column) string {
 }
 
 // mapDataType maps generic types to PostgreSQL-specific types.
-func (d *PostgresDialect) mapDataType(dataType string) string {
-	switch dataType {
+func (d *PostgresDialect) mapDataType(col *types.Column) string {
+	switch col.DataType {
 	case "varchar":
+		if col.Length > 0 {
+			return fmt.Sprintf("VARCHAR(%d)", col.Length)
+		}
 		return "VARCHAR(255)"
+	case "char":
+		if col.Length > 0 {
+			return fmt.Sprintf("CHAR(%d)", col.Length)
+		}
+		return "CHAR(1)"
 	case "int":
 		return "INTEGER"
 	case "bigint":
@@ -86,11 +94,22 @@ func (d *PostgresDialect) mapDataType(dataType string) string {
 	case "smallint":
 		return "SMALLINT"
 	case "float":
+		if col.Precision > 0 {
+			return fmt.Sprintf("FLOAT(%d)", col.Precision)
+		}
 		return "REAL"
 	case "double":
 		return "DOUBLE PRECISION"
 	case "decimal":
-		return "DECIMAL(10,2)"
+		p := col.Precision
+		if p == 0 {
+			p = 10
+		}
+		s := col.Scale
+		if s == 0 {
+			s = 2
+		}
+		return fmt.Sprintf("DECIMAL(%d,%d)", p, s)
 	case "boolean":
 		return "BOOLEAN"
 	case "text":
@@ -114,7 +133,7 @@ func (d *PostgresDialect) mapDataType(dataType string) string {
 	case "bigserial":
 		return "BIGSERIAL"
 	default:
-		return strings.ToUpper(dataType)
+		return strings.ToUpper(col.DataType)
 	}
 }
 
@@ -186,7 +205,7 @@ func (d *PostgresDialect) ChangeColumnTypeSQL(tableName string, column *types.Co
 	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
 		d.QuoteIdentifier(tableName),
 		d.QuoteIdentifier(column.Name),
-		d.mapDataType(column.DataType))
+		d.mapDataType(column))
 }
 
 // SetColumnNotNullSQL generates an ALTER TABLE ALTER COLUMN SET NOT NULL statement.

@@ -74,7 +74,15 @@ func (d *MySQLDialect) ColumnDefinitionSQL(col *types.Column) string {
 func (d *MySQLDialect) mapDataType(col *types.Column) string {
 	switch col.DataType {
 	case "varchar":
+		if col.Length > 0 {
+			return fmt.Sprintf("VARCHAR(%d)", col.Length)
+		}
 		return "VARCHAR(255)"
+	case "char":
+		if col.Length > 0 {
+			return fmt.Sprintf("CHAR(%d)", col.Length)
+		}
+		return "CHAR(1)"
 	case "int":
 		return "INT"
 	case "bigint":
@@ -82,11 +90,22 @@ func (d *MySQLDialect) mapDataType(col *types.Column) string {
 	case "smallint":
 		return "SMALLINT"
 	case "float":
+		if col.Precision > 0 {
+			return fmt.Sprintf("FLOAT(%d)", col.Precision)
+		}
 		return "FLOAT"
 	case "double":
 		return "DOUBLE"
 	case "decimal":
-		return "DECIMAL(10,2)"
+		p := col.Precision
+		if p == 0 {
+			p = 10
+		}
+		s := col.Scale
+		if s == 0 {
+			s = 2
+		}
+		return fmt.Sprintf("DECIMAL(%d,%d)", p, s)
 	case "boolean":
 		return "TINYINT(1)"
 	case "text":
@@ -104,6 +123,9 @@ func (d *MySQLDialect) mapDataType(col *types.Column) string {
 	case "jsonb":
 		return "JSON" // MySQL uses JSON for both
 	case "binary":
+		if col.Length > 0 {
+			return fmt.Sprintf("VARBINARY(%d)", col.Length)
+		}
 		return "BLOB"
 	case "serial":
 		return "INT AUTO_INCREMENT"

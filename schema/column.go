@@ -50,3 +50,21 @@ func (c *Column) References(table, column string) *Column {
 	c.RefColumn = column
 	return c
 }
+
+// Length sets the length for string/binary types (e.g., VARCHAR(100)).
+func (c *Column) Length(n int) *Column {
+	c.Column.Length = n
+	return c
+}
+
+// Precision sets the precision for numeric types (e.g., DECIMAL(10,2), FLOAT(53)).
+func (c *Column) Precision(p int) *Column {
+	c.Column.Precision = p
+	return c
+}
+
+// Scale sets the scale for numeric types (e.g., DECIMAL(10,2)).
+func (c *Column) Scale(s int) *Column {
+	c.Column.Scale = s
+	return c
+}

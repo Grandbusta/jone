@@ -29,6 +29,9 @@ type TableAction struct {
 type Column struct {
 	Name         string
 	DataType     string
+	Length       int // For VARCHAR, CHAR, BINARY
+	Precision    int // For DECIMAL, NUMERIC, FLOAT
+	Scale        int // For DECIMAL, NUMERIC
 	IsPrimaryKey bool
 	IsNotNull    bool
 	IsUnique     bool
