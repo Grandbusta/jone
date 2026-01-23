@@ -68,29 +68,107 @@ func RunLatest(p RunParams) error {
 
 	// Run each pending migration in a transaction
 	for _, reg := range pending {
-		tx, err := p.Schema.BeginTx()
-		if err != nil {
-			return fmt.Errorf("starting transaction: %w", err)
+		if err := runMigration(p, tracker, reg, batch); err != nil {
+			return err
 		}
-
-		// Run migration with transactional schema
-		txSchema := p.Schema.WithTx(tx)
-		reg.Up(txSchema)
-
-		// Record migration
-		if err := tracker.RecordMigrationTx(tx, reg.Name, batch); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("recording migration %s: %w", reg.Name, err)
-		}
-
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("committing migration %s: %w", reg.Name, err)
-		}
-
-		fmt.Printf("Migrated: %s\n", reg.Name)
 	}
 
 	fmt.Println("All migrations completed successfully")
+	return nil
+}
+
+// RunUp runs the next pending migration or a specific one if Args[0] provided.
+// Each migration is wrapped in a transaction.
+func RunUp(p RunParams) error {
+	d := p.Schema.Dialect()
+	tracker := NewTracker(p.Schema.DB(), d, p.Config.Migrations.TableName)
+
+	// Ensure tracking table exists
+	if err := tracker.EnsureTable(); err != nil {
+		return fmt.Errorf("ensuring migrations table: %w", err)
+	}
+
+	// Get applied migrations
+	applied, err := tracker.GetApplied()
+	if err != nil {
+		return fmt.Errorf("getting applied migrations: %w", err)
+	}
+	appliedSet := make(map[string]bool)
+	for _, name := range applied {
+		appliedSet[name] = true
+	}
+
+	// Build map of registrations for lookup
+	regMap := make(map[string]Registration)
+	for _, reg := range p.Registrations {
+		regMap[reg.Name] = reg
+	}
+
+	// Get next batch number
+	lastBatch, err := tracker.GetLastBatch()
+	if err != nil {
+		return fmt.Errorf("getting last batch: %w", err)
+	}
+	batch := lastBatch + 1
+
+	// Determine which migration to run
+	var targetReg Registration
+	if len(p.Options.Args) > 0 {
+		// Run specific migration by name
+		targetName := p.Options.Args[0]
+		reg, ok := regMap[targetName]
+		if !ok {
+			return fmt.Errorf("migration %s not found in registry", targetName)
+		}
+		if appliedSet[targetName] {
+			fmt.Printf("Migration %s already applied\n", targetName)
+			return nil
+		}
+		targetReg = reg
+	} else {
+		// Run the next pending migration
+		var pending []Registration
+		for _, reg := range p.Registrations {
+			if !appliedSet[reg.Name] {
+				pending = append(pending, reg)
+			}
+		}
+		if len(pending) == 0 {
+			fmt.Println("No pending migrations")
+			return nil
+		}
+		targetReg = pending[0]
+	}
+
+	// Run the migration
+	if err := runMigration(p, tracker, targetReg, batch); err != nil {
+		return err
+	}
+
+	fmt.Println("Migration completed successfully")
+	return nil
+}
+
+// runMigration runs a single migration in a transaction.
+func runMigration(p RunParams, tracker *Tracker, reg Registration, batch int) error {
+	tx, err := p.Schema.BeginTx()
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+
+	txSchema := p.Schema.WithTx(tx)
+	reg.Up(txSchema)
+
+	if err := tracker.RecordMigrationTx(tx, reg.Name, batch); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("recording migration %s: %w", reg.Name, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing migration %s: %w", reg.Name, err)
+	}
+
+	fmt.Printf("Migrated: %s\n", reg.Name)
 	return nil
 }
 

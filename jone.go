@@ -43,7 +43,10 @@ type RunOptions = migration.RunOptions
 // RunLatest executes pending Up migrations in order.
 var RunLatest = migration.RunLatest
 
-// RunDown executes all Down migrations in reverse order.
+// RunUp runs the next pending migration or a specific one.
+var RunUp = migration.RunUp
+
+// RunDown rolls back the last single migration.
 var RunDown = migration.RunDown
 
 // RunRollback rolls back the last batch of migrations.
