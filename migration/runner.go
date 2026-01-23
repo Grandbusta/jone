@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/Grandbusta/jone/config"
+	"github.com/Grandbusta/jone/internal/term"
 	"github.com/Grandbusta/jone/schema"
 )
 
@@ -74,6 +75,49 @@ func RunLatest(p RunParams) error {
 	}
 
 	fmt.Println("All migrations completed successfully")
+	return nil
+}
+
+// RunList displays all migrations with their status (applied/pending).
+func RunList(p RunParams) error {
+	d := p.Schema.Dialect()
+	tracker := NewTracker(p.Schema.DB(), d, p.Config.Migrations.TableName)
+
+	// Ensure tracking table exists
+	if err := tracker.EnsureTable(); err != nil {
+		return fmt.Errorf("ensuring migrations table: %w", err)
+	}
+
+	// Get applied migrations
+	applied, err := tracker.GetApplied()
+	if err != nil {
+		return fmt.Errorf("getting applied migrations: %w", err)
+	}
+	appliedSet := make(map[string]bool)
+	for _, name := range applied {
+		appliedSet[name] = true
+	}
+
+	// Count stats
+	appliedCount := 0
+	pendingCount := 0
+
+	fmt.Println("\nMigrations:")
+	fmt.Println("───────────────────────────────────────────────────────")
+
+	for _, reg := range p.Registrations {
+		if appliedSet[reg.Name] {
+			fmt.Printf("  %s  %s\n", term.GreenText("✓"), reg.Name)
+			appliedCount++
+		} else {
+			fmt.Printf("  %s  %s\n", term.YellowText("○"), reg.Name)
+			pendingCount++
+		}
+	}
+
+	fmt.Println("───────────────────────────────────────────────────────")
+	fmt.Printf("Total: %s, %s\n\n", term.GreenText(fmt.Sprintf("%d applied", appliedCount)), term.YellowText(fmt.Sprintf("%d pending", pendingCount)))
+
 	return nil
 }
 

@@ -66,6 +66,11 @@ func main() {
 			fmt.Printf("Migration failed: %v\n", err)
 			os.Exit(1)
 		}
+	case "migrate:list":
+		if err := jone.RunList(params); err != nil {
+			fmt.Printf("List failed: %v\n", err)
+			os.Exit(1)
+		}
 	case "migrate:up":
 		if err := jone.RunUp(params); err != nil {
 			fmt.Printf("Migration failed: %v\n", err)

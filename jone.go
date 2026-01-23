@@ -43,6 +43,9 @@ type RunOptions = migration.RunOptions
 // RunLatest executes pending Up migrations in order.
 var RunLatest = migration.RunLatest
 
+// RunList displays all migrations with their status.
+var RunList = migration.RunList
+
 // RunUp runs the next pending migration or a specific one.
 var RunUp = migration.RunUp
 
