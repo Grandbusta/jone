@@ -8,7 +8,7 @@ import (
 
 // Version is the current version of jone.
 // Update this before each release.
-var Version = "v0.1.0-alpha"
+var Version = "v0.1.1"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
