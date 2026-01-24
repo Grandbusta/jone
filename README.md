@@ -4,8 +4,16 @@ A Go database migration tool with a fluent schema builder. Query builder coming 
 
 ## Installation
 
+**1. Install the CLI** (one-time, adds `jone` command to your system):
+
 ```bash
 go install github.com/Grandbusta/jone/cmd/jone@latest
+```
+
+**2. Add library to your project** (run in your project directory):
+
+```bash
+go get github.com/Grandbusta/jone
 ```
 
 ## Quick Start
