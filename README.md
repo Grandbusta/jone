@@ -2,7 +2,7 @@
 
 A Go database migration tool with a fluent schema builder. Query builder coming soon!
 
-![Demo](https://github.com/user-attachments/assets/d34845a8-3b75-4c90-9262-796844279d21)
+https://github.com/user-attachments/assets/d34845a8-3b75-4c90-9262-796844279d21
 
 ## Installation
 
