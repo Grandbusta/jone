@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/Grandbusta/jone/cmd/jone/templates"
+	"github.com/Grandbusta/jone/internal/term"
 )
 
 type RunExecParams struct {
@@ -30,7 +31,7 @@ func runMigrations(params RunExecParams) error {
 	// Get module path for imports
 	modulePath := ReadModulePath(cwd)
 	if modulePath == "" {
-		return fmt.Errorf("could not read module path from go.mod")
+		return fmt.Errorf("could not read module path. Ensure go.mod exists and contains a valid module declaration")
 	}
 	// Generate runner in .runner folder
 	runnerDir := filepath.Join(cwd, JoneFolderPath, ".runner")
@@ -92,14 +93,14 @@ func buildRunner(cwd, runnerPath, binaryPath string) error {
 	buildCmd.Stderr = os.Stderr
 
 	if err := buildCmd.Run(); err != nil {
-		return fmt.Errorf("go build failed: %w", err)
+		return fmt.Errorf("failed to compile migrations: %w. Try running 'go mod tidy' and check for syntax errors in your migration files", err)
 	}
 
 	return nil
 }
 
 func executeRunner(binaryPath string, params RunExecParams) error {
-	fmt.Printf("Running migrations (%s)...\n", params.Command)
+	fmt.Println(term.CyanText(fmt.Sprintf("Running migrations (%s)...", params.Command)))
 
 	// Build command arguments: command + flags + args
 	cmdArgs := []string{params.Command}

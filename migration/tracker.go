@@ -31,7 +31,7 @@ func (t *Tracker) EnsureTable() error {
 	sql := t.dialect.CreateMigrationsTableSQL(t.tableName)
 	_, err := t.db.Exec(sql)
 	if err != nil {
-		return fmt.Errorf("creating migrations table: %w", err)
+		return fmt.Errorf("failed to create migrations table '%s': %w", t.tableName, err)
 	}
 	return nil
 }
@@ -41,7 +41,7 @@ func (t *Tracker) GetApplied() ([]string, error) {
 	sql := t.dialect.GetAppliedMigrationsSQL(t.tableName)
 	rows, err := t.db.Query(sql)
 	if err != nil {
-		return nil, fmt.Errorf("querying applied migrations: %w", err)
+		return nil, fmt.Errorf("failed to query migrations from '%s': %w", t.tableName, err)
 	}
 	defer rows.Close()
 
@@ -62,7 +62,7 @@ func (t *Tracker) GetLastBatch() (int, error) {
 	var batch int
 	err := t.db.QueryRow(sql).Scan(&batch)
 	if err != nil {
-		return 0, fmt.Errorf("querying last batch: %w", err)
+		return 0, fmt.Errorf("failed to get last batch number from '%s': %w", t.tableName, err)
 	}
 	return batch, nil
 }
@@ -72,7 +72,7 @@ func (t *Tracker) GetBatchMigrations(batch int) ([]string, error) {
 	sql := t.dialect.GetMigrationsByBatchSQL(t.tableName)
 	rows, err := t.db.Query(sql, batch)
 	if err != nil {
-		return nil, fmt.Errorf("querying batch migrations: %w", err)
+		return nil, fmt.Errorf("failed to query batch %d migrations: %w", batch, err)
 	}
 	defer rows.Close()
 

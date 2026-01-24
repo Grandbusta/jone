@@ -90,10 +90,10 @@ func (s *Schema) Open() error {
 	dsn := s.config.Connection.DSN()
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return fmt.Errorf("failed to open database: %w. Check your connection settings in jonefile.go", err)
 	}
 	if err := db.Ping(); err != nil {
-		return fmt.Errorf("pinging database: %w", err)
+		return fmt.Errorf("cannot connect to database: %w. Verify host, port, and credentials in jonefile.go", err)
 	}
 	s.db = db
 	s.execer = db

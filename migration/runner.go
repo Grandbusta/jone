@@ -38,13 +38,13 @@ func RunLatest(p RunParams) error {
 
 	// Ensure tracking table exists
 	if err := tracker.EnsureTable(); err != nil {
-		return fmt.Errorf("ensuring migrations table: %w", err)
+		return err // Error already descriptive from tracker
 	}
 
 	// Get applied migrations
 	applied, err := tracker.GetApplied()
 	if err != nil {
-		return fmt.Errorf("getting applied migrations: %w", err)
+		return err // Error already descriptive from tracker
 	}
 	appliedSet := make(map[string]bool)
 	for _, name := range applied {
@@ -67,7 +67,7 @@ func RunLatest(p RunParams) error {
 	// Get next batch number
 	lastBatch, err := tracker.GetLastBatch()
 	if err != nil {
-		return fmt.Errorf("getting last batch: %w", err)
+		return err // Error already descriptive from tracker
 	}
 	batch := lastBatch + 1
 
@@ -156,13 +156,13 @@ func RunUp(p RunParams) error {
 
 	// Ensure tracking table exists
 	if err := tracker.EnsureTable(); err != nil {
-		return fmt.Errorf("ensuring migrations table: %w", err)
+		return err
 	}
 
 	// Get applied migrations
 	applied, err := tracker.GetApplied()
 	if err != nil {
-		return fmt.Errorf("getting applied migrations: %w", err)
+		return err
 	}
 	appliedSet := make(map[string]bool)
 	for _, name := range applied {
@@ -178,7 +178,7 @@ func RunUp(p RunParams) error {
 	// Get next batch number
 	lastBatch, err := tracker.GetLastBatch()
 	if err != nil {
-		return fmt.Errorf("getting last batch: %w", err)
+		return err
 	}
 	batch := lastBatch + 1
 
@@ -224,7 +224,7 @@ func RunUp(p RunParams) error {
 func runMigration(p RunParams, tracker *Tracker, reg Registration, batch int) error {
 	tx, err := p.Schema.BeginTx()
 	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
+		return fmt.Errorf("failed to start transaction for '%s': %w", reg.Name, err)
 	}
 
 	txSchema := p.Schema.WithTx(tx)
@@ -232,11 +232,11 @@ func runMigration(p RunParams, tracker *Tracker, reg Registration, batch int) er
 
 	if err := tracker.RecordMigrationTx(tx, reg.Name, batch); err != nil {
 		tx.Rollback()
-		return fmt.Errorf("recording migration %s: %w", reg.Name, err)
+		return fmt.Errorf("failed to record migration '%s': %w", reg.Name, err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing migration %s: %w", reg.Name, err)
+		return fmt.Errorf("failed to commit migration '%s': %w", reg.Name, err)
 	}
 
 	fmt.Println(term.GreenText(fmt.Sprintf("  ✓ Migrated: %s", reg.Name)))
@@ -256,7 +256,7 @@ func RunDown(p RunParams) error {
 
 	applied, err := tracker.GetApplied()
 	if err != nil {
-		return fmt.Errorf("getting applied migrations: %w", err)
+		return err
 	}
 
 	if len(applied) == 0 {
@@ -379,12 +379,12 @@ func rollbackAll(p RunParams, tracker *Tracker, regMap map[string]Registration) 
 func rollbackMigration(p RunParams, tracker *Tracker, regMap map[string]Registration, name string) error {
 	reg, ok := regMap[name]
 	if !ok {
-		return fmt.Errorf("migration %s not found in registry", name)
+		return fmt.Errorf("migration '%s' not found in registry. Was it deleted or renamed?", name)
 	}
 
 	tx, err := p.Schema.BeginTx()
 	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
+		return fmt.Errorf("failed to start transaction for rollback '%s': %w", name, err)
 	}
 
 	txSchema := p.Schema.WithTx(tx)
@@ -392,11 +392,11 @@ func rollbackMigration(p RunParams, tracker *Tracker, regMap map[string]Registra
 
 	if err := tracker.RemoveMigrationTx(tx, name); err != nil {
 		tx.Rollback()
-		return fmt.Errorf("removing migration record %s: %w", name, err)
+		return fmt.Errorf("failed to remove migration record '%s': %w", name, err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing rollback %s: %w", name, err)
+		return fmt.Errorf("failed to commit rollback '%s': %w", name, err)
 	}
 
 	fmt.Println(term.GreenText(fmt.Sprintf("  ✓ Rolled back: %s", name)))
