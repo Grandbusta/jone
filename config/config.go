@@ -2,7 +2,6 @@
 package config
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -31,18 +30,6 @@ type Connection struct {
 	Password string
 	Database string
 	SSLMode  string // disable, require, verify-full
-}
-
-// DSN returns the PostgreSQL connection string.
-//
-// Deprecated: Use Dialect.FormatDSN instead, which handles all database types.
-func (c *Connection) DSN() string {
-	sslMode := c.SSLMode
-	if sslMode == "" {
-		sslMode = "disable"
-	}
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		c.Host, c.Port, c.User, c.Password, c.Database, sslMode)
 }
 
 // Migrations holds migration-specific configuration.
