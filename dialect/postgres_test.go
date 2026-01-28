@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/types"
 )
 
@@ -269,5 +270,67 @@ func TestPostgresDialect_CommentColumnSQL(t *testing.T) {
 	}
 	if !strings.Contains(sql, "email") {
 		t.Error("column name not in SQL")
+	}
+}
+
+func TestPostgresDialect_DriverName(t *testing.T) {
+	d := &PostgresDialect{}
+	if got := d.DriverName(); got != "pgx" {
+		t.Errorf("DriverName() = %q, want %q", got, "pgx")
+	}
+}
+
+func TestPostgresDialect_FormatDSN(t *testing.T) {
+	d := &PostgresDialect{}
+
+	tests := []struct {
+		name string
+		conn config.Connection
+		want string
+	}{
+		{
+			name: "basic connection",
+			conn: config.Connection{
+				Host:     "localhost",
+				Port:     "5432",
+				User:     "postgres",
+				Password: "secret",
+				Database: "testdb",
+			},
+			want: "host=localhost port=5432 user=postgres password=secret dbname=testdb sslmode=disable",
+		},
+		{
+			name: "with ssl mode",
+			conn: config.Connection{
+				Host:     "db.example.com",
+				Port:     "5432",
+				User:     "admin",
+				Password: "pass",
+				Database: "prod",
+				SSLMode:  "require",
+			},
+			want: "host=db.example.com port=5432 user=admin password=pass dbname=prod sslmode=require",
+		},
+		{
+			name: "empty ssl defaults to disable",
+			conn: config.Connection{
+				Host:     "localhost",
+				Port:     "5432",
+				User:     "user",
+				Password: "pw",
+				Database: "db",
+				SSLMode:  "",
+			},
+			want: "host=localhost port=5432 user=user password=pw dbname=db sslmode=disable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := d.FormatDSN(tt.conn)
+			if got != tt.want {
+				t.Errorf("FormatDSN() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

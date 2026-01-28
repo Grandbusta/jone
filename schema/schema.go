@@ -86,15 +86,34 @@ func (s *Schema) SetDB(db *sql.DB) {
 }
 
 // Open opens a database connection using the config.
+// It uses the dialect to determine the driver and DSN format, and applies
+// any connection pool settings from the config.
 func (s *Schema) Open() error {
-	dsn := s.config.Connection.DSN()
-	db, err := sql.Open("pgx", dsn)
+	driver := s.dialect.DriverName()
+	dsn := s.dialect.FormatDSN(s.config.Connection)
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w. Check your connection settings in jonefile.go", err)
 	}
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("cannot connect to database: %w. Verify host, port, and credentials in jonefile.go", err)
 	}
+
+	// Apply connection pool settings
+	pool := s.config.Pool
+	if pool.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(pool.MaxOpenConns)
+	}
+	if pool.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(pool.MaxIdleConns)
+	}
+	if pool.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(pool.ConnMaxLifetime)
+	}
+	if pool.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
+	}
+
 	s.db = db
 	s.execer = db
 	return nil

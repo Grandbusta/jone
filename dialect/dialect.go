@@ -1,12 +1,22 @@
 // Package dialect provides database-specific SQL generation.
 package dialect
 
-import "github.com/Grandbusta/jone/types"
+import (
+	"github.com/Grandbusta/jone/config"
+	"github.com/Grandbusta/jone/types"
+)
 
 // Dialect defines the interface for database-specific SQL generation.
 type Dialect interface {
 	// Name returns the dialect name (e.g., "postgresql", "mysql").
 	Name() string
+
+	// DriverName returns the database/sql driver name for this dialect
+	// (e.g., "pgx", "mysql", "sqlite3").
+	DriverName() string
+
+	// FormatDSN builds a connection string from the given connection parameters.
+	FormatDSN(conn config.Connection) string
 
 	// CreateTableSQL generates a CREATE TABLE statement.
 	CreateTableSQL(table *types.Table) string

@@ -21,6 +21,7 @@ import (
 // Configuration types (re-exported from config package)
 type Config = config.Config
 type Connection = config.Connection
+type Pool = config.Pool
 type Migrations = config.Migrations
 
 // Schema types (re-exported from schema package)

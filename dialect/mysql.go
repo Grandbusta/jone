@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/types"
 )
 
@@ -13,6 +14,18 @@ type MySQLDialect struct{}
 // Name returns "mysql".
 func (d *MySQLDialect) Name() string {
 	return "mysql"
+}
+
+// DriverName returns "mysql" for the go-sql-driver/mysql driver.
+func (d *MySQLDialect) DriverName() string {
+	return "mysql"
+}
+
+// FormatDSN builds a MySQL connection string in DSN format.
+func (d *MySQLDialect) FormatDSN(conn config.Connection) string {
+	// Format: user:password@tcp(host:port)/database
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s",
+		conn.User, conn.Password, conn.Host, conn.Port, conn.Database)
 }
 
 // QuoteIdentifier quotes an identifier with backticks for MySQL.

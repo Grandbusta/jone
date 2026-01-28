@@ -83,6 +83,41 @@ var Config = jone.Config{
 }
 ```
 
+## Connection Pooling
+
+Jone leverages Go's built-in `database/sql` connection pool. You can configure pool behavior by adding a `Pool` field to your config:
+
+```go
+import (
+    "time"
+
+    "github.com/Grandbusta/jone"
+    _ "github.com/jackc/pgx/v5/stdlib" // Driver
+)
+
+var Config = jone.Config{
+    Client: "postgresql",
+    Connection: jone.Connection{
+        Host:     "localhost",
+        Port:     "5432",
+        User:     "postgres",
+        Password: "password",
+        Database: "my_db",
+    },
+    Pool: jone.Pool{
+        MaxOpenConns:    10,              // Max open connections (0 = unlimited)
+        MaxIdleConns:    5,               // Max idle connections (0 = default 2)
+        ConnMaxLifetime: 30 * time.Minute, // Max connection reuse time (0 = no limit)
+        ConnMaxIdleTime: 5 * time.Minute,  // Max idle time before close (0 = no limit)
+    },
+    Migrations: jone.Migrations{
+        TableName: "jone_migrations",
+    },
+}
+```
+
+All fields are optional. Omitting `Pool` (or using zero values) preserves the `database/sql` defaults.
+
 ## Schema Builder
 
 ### Creating Tables

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/types"
 )
 
@@ -13,6 +14,21 @@ type PostgresDialect struct{}
 // Name returns "postgresql".
 func (d *PostgresDialect) Name() string {
 	return "postgresql"
+}
+
+// DriverName returns "pgx" for the pgx PostgreSQL driver.
+func (d *PostgresDialect) DriverName() string {
+	return "pgx"
+}
+
+// FormatDSN builds a PostgreSQL connection string from the given parameters.
+func (d *PostgresDialect) FormatDSN(conn config.Connection) string {
+	sslMode := conn.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		conn.Host, conn.Port, conn.User, conn.Password, conn.Database, sslMode)
 }
 
 // QuoteIdentifier quotes an identifier with double quotes for PostgreSQL.
