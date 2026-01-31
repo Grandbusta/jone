@@ -81,8 +81,8 @@ func GetDialect(name string) Dialect {
 	switch name {
 	case "postgresql", "postgres", "pg":
 		return &PostgresDialect{}
-	// case "mysql":
-	// 	return &MySQLDialect{}
+	case "mysql":
+		return &MySQLDialect{}
 	default:
 		// Default to PostgreSQL
 		return &PostgresDialect{}

@@ -3,6 +3,7 @@ package schema
 import (
 	"database/sql"
 	"fmt"
+	"os"
 
 	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/dialect"
@@ -22,6 +23,14 @@ type Schema struct {
 	execer  Execer  // current executor (db or tx)
 	config  *config.Config
 	schema  string // current schema context
+}
+
+// fatal logs the error and exits. Used for unrecoverable schema errors during migrations.
+func fatal(format string, args ...any) {
+	err := fmt.Errorf("ERROR: "+format, args...)
+	fmt.Println(err)
+	// log.Printf("ERROR: "+format, args...)
+	os.Exit(1)
 }
 
 // New creates a new Schema with the given config.
@@ -96,7 +105,7 @@ func (s *Schema) Open() error {
 		return fmt.Errorf("failed to open database: %w. Check your connection settings in jonefile.go", err)
 	}
 	if err := db.Ping(); err != nil {
-		return fmt.Errorf("cannot connect to database: %w. Verify host, port, and credentials in jonefile.go", err)
+		return fmt.Errorf("cannot connect to database: %w. Verify connection settings in jonefile.go", err)
 	}
 
 	// Apply connection pool settings
@@ -129,19 +138,18 @@ func (s *Schema) Close() error {
 
 // Raw executes a raw SQL statement with optional parameters.
 // Use this for custom DDL, data migrations, or database-specific features.
-func (s *Schema) Raw(sql string, args ...any) error {
+func (s *Schema) Raw(sqlStmt string, args ...any) {
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql, args...)
+		_, err := s.execer.Exec(sqlStmt, args...)
 		if err != nil {
-			return fmt.Errorf("executing raw SQL: %w", err)
+			fatal("executing raw SQL: %v", err)
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-	return nil
 }
 
-func (s *Schema) Table(name string, builder func(t *Table)) error {
+func (s *Schema) Table(name string, builder func(t *Table)) {
 	t := NewTable(name)
 	t.Schema = s.schema // Set schema context
 	builder(t)
@@ -149,33 +157,31 @@ func (s *Schema) Table(name string, builder func(t *Table)) error {
 	// Generate SQL for each action
 	statements := s.dialect.AlterTableSQL(s.schema, name, t.Actions)
 
-	for _, sql := range statements {
+	for _, sqlStmt := range statements {
 		if s.execer != nil {
-			_, err := s.execer.Exec(sql)
+			_, err := s.execer.Exec(sqlStmt)
 			if err != nil {
-				return fmt.Errorf("executing ALTER TABLE: %w", err)
+				fatal("executing ALTER TABLE: %v", err)
 			}
 		} else {
-			fmt.Println(sql)
+			fmt.Println(sqlStmt)
 		}
 	}
-
-	return nil
 }
 
 // CreateTable creates a new table with the given name using the builder function.
-func (s *Schema) CreateTable(name string, builder func(t *Table)) error {
+func (s *Schema) CreateTable(name string, builder func(t *Table)) {
 	t := NewTable(name)
 	t.Schema = s.schema // Set schema context
 	builder(t)
 
-	sql := s.dialect.CreateTableSQL(t.Table)
+	sqlStmt := s.dialect.CreateTableSQL(t.Table)
 
 	// Execute if we have a database connection
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql)
+		_, err := s.execer.Exec(sqlStmt)
 		if err != nil {
-			return fmt.Errorf("executing CREATE TABLE: %w", err)
+			fatal("executing CREATE TABLE: %v", err)
 		}
 
 		// Execute COMMENT ON COLUMN for columns with comments (PostgreSQL needs separate statement)
@@ -184,83 +190,74 @@ func (s *Schema) CreateTable(name string, builder func(t *Table)) error {
 			if col.Comment != "" {
 				commentSQL := s.dialect.CommentColumnSQL(qualifiedTable, col.Name, col.Comment)
 				if _, err := s.execer.Exec(commentSQL); err != nil {
-					return fmt.Errorf("executing COMMENT ON COLUMN: %w", err)
+					fatal("executing COMMENT ON COLUMN: %v", err)
 				}
 			}
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-	return nil
 }
 
 // CreateTableIfNotExists creates a new table if it doesn't already exist.
-func (s *Schema) CreateTableIfNotExists(name string, builder func(t *Table)) error {
+func (s *Schema) CreateTableIfNotExists(name string, builder func(t *Table)) {
 	t := NewTable(name)
 	t.Schema = s.schema // Set schema context
 	builder(t)
 
-	sql := s.dialect.CreateTableIfNotExistsSQL(t.Table)
+	sqlStmt := s.dialect.CreateTableIfNotExistsSQL(t.Table)
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql)
+		_, err := s.execer.Exec(sqlStmt)
 		if err != nil {
-			return fmt.Errorf("executing CREATE TABLE IF NOT EXISTS: %w", err)
+			fatal("executing CREATE TABLE IF NOT EXISTS: %v", err)
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-
-	return nil
 }
 
 // DropTable drops a table by name.
-func (s *Schema) DropTable(name string) error {
-	sql := s.dialect.DropTableSQL(s.schema, name)
+func (s *Schema) DropTable(name string) {
+	sqlStmt := s.dialect.DropTableSQL(s.schema, name)
 
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql)
+		_, err := s.execer.Exec(sqlStmt)
 		if err != nil {
-			return fmt.Errorf("executing DROP TABLE: %w", err)
+			fatal("executing DROP TABLE: %v", err)
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-
-	return nil
 }
 
 // DropTableIfExists drops a table if it exists.
-func (s *Schema) DropTableIfExists(name string) error {
-	sql := s.dialect.DropTableIfExistsSQL(s.schema, name)
+func (s *Schema) DropTableIfExists(name string) {
+	sqlStmt := s.dialect.DropTableIfExistsSQL(s.schema, name)
 
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql)
+		_, err := s.execer.Exec(sqlStmt)
 		if err != nil {
-			return fmt.Errorf("executing DROP TABLE IF EXISTS: %w", err)
+			fatal("executing DROP TABLE IF EXISTS: %v", err)
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-
-	return nil
 }
 
 // RenameTable renames a table from oldName to newName.
-func (s *Schema) RenameTable(oldName, newName string) error {
-	sql := fmt.Sprintf("ALTER TABLE %s RENAME TO %s;",
+func (s *Schema) RenameTable(oldName, newName string) {
+	sqlStmt := fmt.Sprintf("ALTER TABLE %s RENAME TO %s;",
 		s.dialect.QualifyTable(s.schema, oldName),
 		s.dialect.QuoteIdentifier(newName))
 
 	if s.execer != nil {
-		_, err := s.execer.Exec(sql)
+		_, err := s.execer.Exec(sqlStmt)
 		if err != nil {
-			return fmt.Errorf("executing RENAME TABLE: %w", err)
+			fatal("executing RENAME TABLE: %v", err)
 		}
 	} else {
-		fmt.Println(sql)
+		fmt.Println(sqlStmt)
 	}
-
-	return nil
 }
 
 // HasTable checks if a table exists.

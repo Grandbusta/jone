@@ -65,7 +65,7 @@ func (d *MySQLDialect) CreateTableIfNotExistsSQL(table *types.Table) string {
 	}
 
 	return fmt.Sprintf(
-		"CREATE TABLE IF NOT EXISTS %s (\n  %s\n);",
+		"CREATE TABLE IF NOT EXISTS %s (\n  %s\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
 		d.QualifyTable(table.Schema, table.Name),
 		strings.Join(columns, ",\n  "),
 	)
@@ -210,9 +210,9 @@ func (d *MySQLDialect) AlterTableSQL(schema, tableName string, actions []*types.
 		case types.ActionChangeColumnType:
 			statements = append(statements, d.changeColumnTypeSQL(qualifiedTable, action.Column))
 		case types.ActionSetColumnNotNull:
-			statements = append(statements, d.setColumnNotNullSQL(qualifiedTable, action.Name))
+			statements = append(statements, d.setColumnNotNullSQL(qualifiedTable, action.Column))
 		case types.ActionDropColumnNotNull:
-			statements = append(statements, d.dropColumnNotNullSQL(qualifiedTable, action.Name))
+			statements = append(statements, d.dropColumnNotNullSQL(qualifiedTable, action.Column))
 		case types.ActionSetColumnDefault:
 			statements = append(statements, d.setColumnDefaultSQL(qualifiedTable, action.Name, action.DefaultValue))
 		case types.ActionDropColumnDefault:
@@ -233,10 +233,16 @@ func (d *MySQLDialect) AlterTableSQL(schema, tableName string, actions []*types.
 }
 
 // createIndexSQL generates a CREATE INDEX statement.
+// Supports USING clause for index methods (BTREE, HASH, FULLTEXT, SPATIAL).
 func (d *MySQLDialect) createIndexSQL(tableName string, idx *types.Index) string {
 	unique := ""
 	if idx.IsUnique {
 		unique = "UNIQUE "
+	}
+
+	using := ""
+	if idx.Method != "" {
+		using = fmt.Sprintf(" USING %s", idx.Method)
 	}
 
 	cols := make([]string, len(idx.Columns))
@@ -244,10 +250,11 @@ func (d *MySQLDialect) createIndexSQL(tableName string, idx *types.Index) string
 		cols[i] = d.QuoteIdentifier(c)
 	}
 
-	return fmt.Sprintf("CREATE %sINDEX %s ON %s (%s);",
+	return fmt.Sprintf("CREATE %sINDEX %s ON %s%s (%s);",
 		unique,
 		d.QuoteIdentifier(idx.Name),
 		tableName,
+		using,
 		strings.Join(cols, ", "))
 }
 
@@ -326,25 +333,23 @@ func (d *MySQLDialect) changeColumnTypeSQL(tableName string, column *types.Colum
 }
 
 // setColumnNotNullSQL generates an ALTER TABLE MODIFY COLUMN statement to set NOT NULL.
-// Note: MySQL requires knowing the column type to modify constraints.
+// Note: MySQL requires the full column definition to modify constraints.
 // tableName should be pre-qualified (e.g., from QualifyTable).
-func (d *MySQLDialect) setColumnNotNullSQL(tableName, columnName string) string {
-	// MySQL doesn't have a direct "SET NOT NULL" - you need to use MODIFY with the full definition.
-	// This is a workaround that works for simple cases.
+func (d *MySQLDialect) setColumnNotNullSQL(tableName string, column *types.Column) string {
 	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s NOT NULL;",
 		tableName,
-		d.QuoteIdentifier(columnName),
-		"VARCHAR(255)") // TODO: This needs the actual column type
+		d.QuoteIdentifier(column.Name),
+		d.mapDataType(column))
 }
 
 // dropColumnNotNullSQL generates an ALTER TABLE MODIFY COLUMN statement to drop NOT NULL.
-// Note: MySQL requires knowing the column type to modify constraints.
+// Note: MySQL requires the full column definition to modify constraints.
 // tableName should be pre-qualified (e.g., from QualifyTable).
-func (d *MySQLDialect) dropColumnNotNullSQL(tableName, columnName string) string {
+func (d *MySQLDialect) dropColumnNotNullSQL(tableName string, column *types.Column) string {
 	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s NULL;",
 		tableName,
-		d.QuoteIdentifier(columnName),
-		"VARCHAR(255)") // TODO: This needs the actual column type
+		d.QuoteIdentifier(column.Name),
+		d.mapDataType(column))
 }
 
 // setColumnDefaultSQL generates an ALTER TABLE ALTER COLUMN SET DEFAULT statement.

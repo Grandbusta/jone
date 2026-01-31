@@ -207,7 +207,6 @@ func (t *Table) DropPrimaryByName(constraintName string) *Table {
 
 // String creates a VARCHAR column.
 func (t *Table) String(name string) *Column {
-	// TODO: Support length
 	return t.addColumn(name, "varchar")
 }
 
