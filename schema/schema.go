@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/dialect"
+	"github.com/Grandbusta/jone/query"
 )
 
 // Execer is an interface for executing SQL (both *sql.DB and *sql.Tx).
@@ -18,11 +20,13 @@ type Execer interface {
 
 // Schema provides methods for database schema operations.
 type Schema struct {
-	dialect dialect.Dialect
-	db      *sql.DB // original connection (for Begin, Close)
-	execer  Execer  // current executor (db or tx)
-	config  *config.Config
-	schema  string // current schema context
+	dialect  dialect.Dialect
+	db       *sql.DB // original connection (for Begin, Close)
+	execer   Execer  // current executor (db or tx)
+	config   *config.Config
+	schema   string // current schema context
+	openOnce sync.Once
+	openErr  error
 }
 
 // fatal logs the error and exits. Used for unrecoverable schema errors during migrations.
@@ -94,10 +98,34 @@ func (s *Schema) SetDB(db *sql.DB) {
 	s.execer = db
 }
 
+// ensureOpen lazily opens the database connection on first use.
+// Safe for concurrent use — only connects once.
+func (s *Schema) ensureOpen() error {
+	s.openOnce.Do(func() {
+		if s.db != nil {
+			return // already opened explicitly via Open()
+		}
+		s.openErr = s.open()
+	})
+	return s.openErr
+}
+
 // Open opens a database connection using the config.
-// It uses the dialect to determine the driver and DSN format, and applies
-// any connection pool settings from the config.
+// Can be called explicitly for eager connection, or left to ensureOpen for lazy connection.
 func (s *Schema) Open() error {
+	var err error
+	s.openOnce.Do(func() {
+		err = s.open()
+		s.openErr = err
+	})
+	if err != nil {
+		return err
+	}
+	return s.openErr
+}
+
+// open is the internal connection logic.
+func (s *Schema) open() error {
 	driver := s.dialect.DriverName()
 	dsn := s.dialect.FormatDSN(s.config.Connection)
 	db, err := sql.Open(driver, dsn)
@@ -147,6 +175,13 @@ func (s *Schema) Raw(sqlStmt string, args ...any) {
 	} else {
 		fmt.Println(sqlStmt)
 	}
+}
+
+// Insert starts building an INSERT query with the given data.
+// Accepts map[string]any for a single row, or []map[string]any for multiple rows.
+func (s *Schema) Insert(data any) *query.InsertBuilder {
+	err := s.ensureOpen()
+	return query.NewInsertBuilder(data, s.dialect, s.execer, err)
 }
 
 func (s *Schema) Table(name string, builder func(t *Table)) {

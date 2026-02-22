@@ -59,35 +59,6 @@ func (s *SelectBuilder) ToSQL() (string, []any) {
 	return "", nil
 }
 
-// InsertBuilder builds INSERT queries.
-type InsertBuilder struct {
-	table   string
-	columns []string
-	values  []any
-}
-
-// Insert starts building an INSERT query.
-func Insert(table string) *InsertBuilder {
-	return &InsertBuilder{table: table}
-}
-
-// Columns sets the columns to insert into.
-func (i *InsertBuilder) Columns(columns ...string) *InsertBuilder {
-	i.columns = columns
-	return i
-}
-
-// Values sets the values to insert.
-func (i *InsertBuilder) Values(values ...any) *InsertBuilder {
-	i.values = values
-	return i
-}
-
-// ToSQL generates the INSERT SQL. (stub implementation)
-func (i *InsertBuilder) ToSQL() (string, []any) {
-	// TODO: Implement full SQL generation
-	return "", nil
-}
 
 // UpdateBuilder builds UPDATE queries.
 type UpdateBuilder struct {

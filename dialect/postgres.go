@@ -177,6 +177,8 @@ func (d *PostgresDialect) mapDataType(col *types.Column) string {
 // formatDefault formats a default value for SQL.
 func (d *PostgresDialect) formatDefault(value any) string {
 	switch v := value.(type) {
+	case types.RawExpr:
+		return v.Expr
 	case string:
 		return fmt.Sprintf("'%s'", v)
 	case bool:
@@ -400,6 +402,81 @@ func (d *PostgresDialect) QualifyTable(schema, tableName string) string {
 		return d.QuoteIdentifier(tableName)
 	}
 	return fmt.Sprintf("%s.%s", d.QuoteIdentifier(schema), d.QuoteIdentifier(tableName))
+}
+
+// --- Query Builder Methods ---
+
+// InsertSQL generates a parameterized INSERT statement for PostgreSQL.
+func (d *PostgresDialect) InsertSQL(table string, data map[string]any, opts InsertOptions) (string, []any) {
+	keys := sortedKeys(data)
+	cols := make([]string, len(keys))
+	placeholders := make([]string, len(keys))
+	var args []any
+	paramIdx := 0
+
+	for i, k := range keys {
+		cols[i] = d.QuoteIdentifier(k)
+		if raw, ok := data[k].(types.RawExpr); ok {
+			placeholders[i] = raw.Expr
+		} else {
+			paramIdx++
+			placeholders[i] = fmt.Sprintf("$%d", paramIdx)
+			args = append(args, data[k])
+		}
+	}
+
+	conflict := ""
+	if opts.OnConflictIgnore {
+		conflict = " ON CONFLICT DO NOTHING"
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)%s;",
+		d.QuoteIdentifier(table),
+		strings.Join(cols, ", "),
+		strings.Join(placeholders, ", "),
+		conflict)
+
+	return sql, args
+}
+
+// InsertManySQL generates a parameterized INSERT statement for multiple rows in PostgreSQL.
+func (d *PostgresDialect) InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any) {
+	keys := sortedKeys(data[0])
+	cols := make([]string, len(keys))
+	for i, k := range keys {
+		cols[i] = d.QuoteIdentifier(k)
+	}
+
+	var args []any
+	paramIdx := 0
+	var valueSets []string
+
+	for _, row := range data {
+		placeholders := make([]string, len(keys))
+		for i, k := range keys {
+			if raw, ok := row[k].(types.RawExpr); ok {
+				placeholders[i] = raw.Expr
+			} else {
+				paramIdx++
+				placeholders[i] = fmt.Sprintf("$%d", paramIdx)
+				args = append(args, row[k])
+			}
+		}
+		valueSets = append(valueSets, fmt.Sprintf("(%s)", strings.Join(placeholders, ", ")))
+	}
+
+	conflict := ""
+	if opts.OnConflictIgnore {
+		conflict = " ON CONFLICT DO NOTHING"
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s%s;",
+		d.QuoteIdentifier(table),
+		strings.Join(cols, ", "),
+		strings.Join(valueSets, ", "),
+		conflict)
+
+	return sql, args
 }
 
 // --- Migration Tracking Methods ---

@@ -32,9 +32,11 @@ type Column = schema.Column
 // Core types (re-exported from types package)
 type CoreTable = types.Table
 type CoreColumn = types.Column
+// Fn provides SQL function helpers (e.g. jone.Fn.Now()).
+var Fn = types.Fn
 
-// NewSchema creates a new Schema with the given config.
-var NewSchema = schema.New
+// New creates a new database instance with the given config.
+var New = schema.New
 
 // Migration types (re-exported from migration package)
 type Registration = migration.Registration

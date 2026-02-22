@@ -6,6 +6,11 @@ import (
 	"github.com/Grandbusta/jone/types"
 )
 
+// InsertOptions holds options for INSERT query generation.
+type InsertOptions struct {
+	OnConflictIgnore bool
+}
+
 // Dialect defines the interface for database-specific SQL generation.
 type Dialect interface {
 	// Name returns the dialect name (e.g., "postgresql", "mysql").
@@ -51,6 +56,14 @@ type Dialect interface {
 	// QualifyTable returns a schema-qualified table name.
 	// If schema is empty, returns just the quoted table name.
 	QualifyTable(schema, tableName string) string
+
+	// --- Query Builder Methods ---
+
+	// InsertSQL generates a parameterized INSERT statement for a single row.
+	InsertSQL(table string, data map[string]any, opts InsertOptions) (string, []any)
+
+	// InsertManySQL generates a parameterized INSERT statement for multiple rows.
+	InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any)
 
 	// --- Migration Tracking Methods ---
 

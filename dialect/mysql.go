@@ -183,6 +183,8 @@ func (d *MySQLDialect) mapDataType(col *types.Column) string {
 // formatDefault formats a default value for SQL.
 func (d *MySQLDialect) formatDefault(value any) string {
 	switch v := value.(type) {
+	case types.RawExpr:
+		return v.Expr
 	case string:
 		return fmt.Sprintf("'%s'", v)
 	case bool:
@@ -405,6 +407,77 @@ func (d *MySQLDialect) QualifyTable(schema, tableName string) string {
 		return d.QuoteIdentifier(tableName)
 	}
 	return fmt.Sprintf("%s.%s", d.QuoteIdentifier(schema), d.QuoteIdentifier(tableName))
+}
+
+// --- Query Builder Methods ---
+
+// InsertSQL generates a parameterized INSERT statement for MySQL.
+func (d *MySQLDialect) InsertSQL(table string, data map[string]any, opts InsertOptions) (string, []any) {
+	keys := sortedKeys(data)
+	cols := make([]string, len(keys))
+	placeholders := make([]string, len(keys))
+	var args []any
+
+	for i, k := range keys {
+		cols[i] = d.QuoteIdentifier(k)
+		if raw, ok := data[k].(types.RawExpr); ok {
+			placeholders[i] = raw.Expr
+		} else {
+			placeholders[i] = "?"
+			args = append(args, data[k])
+		}
+	}
+
+	verb := "INSERT INTO"
+	if opts.OnConflictIgnore {
+		verb = "INSERT IGNORE INTO"
+	}
+
+	sql := fmt.Sprintf("%s %s (%s) VALUES (%s);",
+		verb,
+		d.QuoteIdentifier(table),
+		strings.Join(cols, ", "),
+		strings.Join(placeholders, ", "))
+
+	return sql, args
+}
+
+// InsertManySQL generates a parameterized INSERT statement for multiple rows in MySQL.
+func (d *MySQLDialect) InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any) {
+	keys := sortedKeys(data[0])
+	cols := make([]string, len(keys))
+	for i, k := range keys {
+		cols[i] = d.QuoteIdentifier(k)
+	}
+
+	var args []any
+	var valueSets []string
+
+	for _, row := range data {
+		placeholders := make([]string, len(keys))
+		for i, k := range keys {
+			if raw, ok := row[k].(types.RawExpr); ok {
+				placeholders[i] = raw.Expr
+			} else {
+				placeholders[i] = "?"
+				args = append(args, row[k])
+			}
+		}
+		valueSets = append(valueSets, fmt.Sprintf("(%s)", strings.Join(placeholders, ", ")))
+	}
+
+	verb := "INSERT INTO"
+	if opts.OnConflictIgnore {
+		verb = "INSERT IGNORE INTO"
+	}
+
+	sql := fmt.Sprintf("%s %s (%s) VALUES %s;",
+		verb,
+		d.QuoteIdentifier(table),
+		strings.Join(cols, ", "),
+		strings.Join(valueSets, ", "))
+
+	return sql, args
 }
 
 // --- Migration Tracking Methods ---
