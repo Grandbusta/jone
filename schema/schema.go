@@ -184,6 +184,71 @@ func (s *Schema) Insert(data any) *query.InsertBuilder {
 	return query.NewInsertBuilder(data, s.dialect, s.execer, err)
 }
 
+// Select starts building a SELECT query with the given columns.
+func (s *Schema) Select(columns ...string) *query.SelectBuilder {
+	err := s.ensureOpen()
+	return query.NewSelectBuilder(columns, s.dialect, s.execer, err)
+}
+
+// Update starts building an UPDATE query for the given table.
+func (s *Schema) Update(table string) *query.UpdateBuilder {
+	err := s.ensureOpen()
+	return query.NewUpdateBuilder(table, s.dialect, s.execer, err)
+}
+
+// Delete starts building a DELETE query for the given table.
+func (s *Schema) Delete(table string) *query.DeleteBuilder {
+	err := s.ensureOpen()
+	return query.NewDeleteBuilder(table, s.dialect, s.execer, err)
+}
+
+// Transaction runs fn inside a database transaction.
+// Automatically commits on nil return, rolls back on error.
+func (s *Schema) Transaction(fn func(tx *Schema) error) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	txSchema := s.WithTx(tx)
+	if err := fn(txSchema); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// TxSchema is a Schema scoped to an active transaction.
+// Use Commit() or Rollback() to finalize the transaction.
+type TxSchema struct {
+	*Schema
+	tx *sql.Tx
+}
+
+// Commit commits the transaction.
+func (t *TxSchema) Commit() error {
+	return t.tx.Commit()
+}
+
+// Rollback aborts the transaction.
+func (t *TxSchema) Rollback() error {
+	return t.tx.Rollback()
+}
+
+// Begin starts a new transaction and returns a TxSchema for manual commit/rollback control.
+func (s *Schema) Begin() (*TxSchema, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &TxSchema{Schema: s.WithTx(tx), tx: tx}, nil
+}
+
 func (s *Schema) Table(name string, builder func(t *Table)) {
 	t := NewTable(name)
 	t.Schema = s.schema // Set schema context

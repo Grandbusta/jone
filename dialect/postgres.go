@@ -425,10 +425,7 @@ func (d *PostgresDialect) InsertSQL(table string, data map[string]any, opts Inse
 		}
 	}
 
-	conflict := ""
-	if opts.OnConflictIgnore {
-		conflict = " ON CONFLICT DO NOTHING"
-	}
+	conflict := d.buildConflictClause(opts)
 
 	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)%s;",
 		d.QuoteIdentifier(table),
@@ -465,10 +462,7 @@ func (d *PostgresDialect) InsertManySQL(table string, data []map[string]any, opt
 		valueSets = append(valueSets, fmt.Sprintf("(%s)", strings.Join(placeholders, ", ")))
 	}
 
-	conflict := ""
-	if opts.OnConflictIgnore {
-		conflict = " ON CONFLICT DO NOTHING"
-	}
+	conflict := d.buildConflictClause(opts)
 
 	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s%s;",
 		d.QuoteIdentifier(table),
@@ -477,6 +471,90 @@ func (d *PostgresDialect) InsertManySQL(table string, data []map[string]any, opt
 		conflict)
 
 	return sql, args
+}
+
+// buildConflictClause generates the ON CONFLICT clause for PostgreSQL INSERT statements.
+func (d *PostgresDialect) buildConflictClause(opts InsertOptions) string {
+	if !opts.OnConflictIgnore {
+		return ""
+	}
+	if opts.ConflictRaw != "" {
+		return fmt.Sprintf(" ON CONFLICT %s DO NOTHING", opts.ConflictRaw)
+	}
+	if len(opts.ConflictColumns) > 0 {
+		cols := make([]string, len(opts.ConflictColumns))
+		for i, c := range opts.ConflictColumns {
+			cols[i] = d.QuoteIdentifier(c)
+		}
+		return fmt.Sprintf(" ON CONFLICT (%s) DO NOTHING", strings.Join(cols, ", "))
+	}
+	return " ON CONFLICT DO NOTHING"
+}
+
+// SelectSQL generates a SELECT statement for PostgreSQL.
+func (d *PostgresDialect) SelectSQL(table string, columns []string, wheres []string, orderBys []string, limit *int, offset *int) string {
+	cols := "*"
+	if len(columns) > 0 {
+		quoted := make([]string, len(columns))
+		for i, c := range columns {
+			if c == "*" {
+				quoted[i] = c
+			} else {
+				quoted[i] = d.QuoteIdentifier(c)
+			}
+		}
+		cols = strings.Join(quoted, ", ")
+	}
+
+	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
+
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	if len(orderBys) > 0 {
+		sql += " ORDER BY " + strings.Join(orderBys, ", ")
+	}
+	if limit != nil {
+		sql += fmt.Sprintf(" LIMIT %d", *limit)
+	}
+	if offset != nil {
+		sql += fmt.Sprintf(" OFFSET %d", *offset)
+	}
+	return sql + ";"
+}
+
+// UpdateSQL generates a parameterized UPDATE statement for PostgreSQL.
+func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []string) (string, []any) {
+	keys := sortedKeys(set)
+	setClauses := make([]string, len(keys))
+	var args []any
+	paramIdx := 0
+
+	for i, k := range keys {
+		if raw, ok := set[k].(types.RawExpr); ok {
+			setClauses[i] = fmt.Sprintf("%s = %s", d.QuoteIdentifier(k), raw.Expr)
+		} else {
+			paramIdx++
+			setClauses[i] = fmt.Sprintf("%s = $%d", d.QuoteIdentifier(k), paramIdx)
+			args = append(args, set[k])
+		}
+	}
+
+	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
+
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	return sql + ";", args
+}
+
+// DeleteSQL generates a DELETE statement for PostgreSQL.
+func (d *PostgresDialect) DeleteSQL(table string, wheres []string) string {
+	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	return sql + ";"
 }
 
 // --- Migration Tracking Methods ---

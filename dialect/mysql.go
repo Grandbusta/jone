@@ -480,6 +480,70 @@ func (d *MySQLDialect) InsertManySQL(table string, data []map[string]any, opts I
 	return sql, args
 }
 
+// SelectSQL generates a SELECT statement for MySQL.
+func (d *MySQLDialect) SelectSQL(table string, columns []string, wheres []string, orderBys []string, limit *int, offset *int) string {
+	cols := "*"
+	if len(columns) > 0 {
+		quoted := make([]string, len(columns))
+		for i, c := range columns {
+			if c == "*" {
+				quoted[i] = c
+			} else {
+				quoted[i] = d.QuoteIdentifier(c)
+			}
+		}
+		cols = strings.Join(quoted, ", ")
+	}
+
+	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
+
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	if len(orderBys) > 0 {
+		sql += " ORDER BY " + strings.Join(orderBys, ", ")
+	}
+	if limit != nil {
+		sql += fmt.Sprintf(" LIMIT %d", *limit)
+	}
+	if offset != nil {
+		sql += fmt.Sprintf(" OFFSET %d", *offset)
+	}
+	return sql + ";"
+}
+
+// UpdateSQL generates a parameterized UPDATE statement for MySQL.
+func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []string) (string, []any) {
+	keys := sortedKeys(set)
+	setClauses := make([]string, len(keys))
+	var args []any
+
+	for i, k := range keys {
+		if raw, ok := set[k].(types.RawExpr); ok {
+			setClauses[i] = fmt.Sprintf("%s = %s", d.QuoteIdentifier(k), raw.Expr)
+		} else {
+			setClauses[i] = fmt.Sprintf("%s = ?", d.QuoteIdentifier(k))
+			args = append(args, set[k])
+		}
+	}
+
+	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
+
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	return sql + ";", args
+}
+
+// DeleteSQL generates a DELETE statement for MySQL.
+func (d *MySQLDialect) DeleteSQL(table string, wheres []string) string {
+	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
+	if len(wheres) > 0 {
+		sql += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	return sql + ";"
+}
+
 // --- Migration Tracking Methods ---
 
 // CreateMigrationsTableSQL returns SQL to create the migrations tracking table.
