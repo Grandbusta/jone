@@ -42,7 +42,7 @@ func main() {
 	cfg := &joneconfig.Config
 
 	// Create schema and open database connection
-	s := jone.NewSchema(cfg)
+	s := jone.New(cfg)
 	if !*dryRunFlag {
 		if err := s.Open(); err != nil {
 			fmt.Printf("Failed to connect to database: %v\n", err)

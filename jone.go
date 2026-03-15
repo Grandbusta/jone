@@ -26,15 +26,27 @@ type Migrations = config.Migrations
 
 // Schema types (re-exported from schema package)
 type Schema = schema.Schema
+type TxSchema = schema.TxSchema
 type Table = schema.Table
 type Column = schema.Column
 
 // Core types (re-exported from types package)
 type CoreTable = types.Table
 type CoreColumn = types.Column
+// Fn provides SQL function helpers (e.g. jone.Fn.Now()).
+var Fn = types.Fn
 
-// NewSchema creates a new Schema with the given config.
-var NewSchema = schema.New
+// Raw wraps a string as a raw SQL expression, bypassing parameterization.
+// Use for SQL functions, expressions, or conflict targets:
+//
+//	jone.Raw("NOW()")
+//	jone.Raw("(email) WHERE active")
+func Raw(expr string) types.RawExpr {
+	return types.RawExpr{Expr: expr}
+}
+
+// New creates a new database instance with the given config.
+var New = schema.New
 
 // Migration types (re-exported from migration package)
 type Registration = migration.Registration

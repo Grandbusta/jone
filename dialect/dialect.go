@@ -6,6 +6,17 @@ import (
 	"github.com/Grandbusta/jone/types"
 )
 
+// InsertOptions holds options for INSERT query generation.
+type InsertOptions struct {
+	OnConflictIgnore bool
+	// ConflictColumns are the column names for the ON CONFLICT target.
+	// e.g. ["email"] → ON CONFLICT ("email") DO NOTHING
+	ConflictColumns []string
+	// ConflictRaw is a raw conflict target expression used as-is.
+	// e.g. "(email) WHERE active" → ON CONFLICT (email) WHERE active DO NOTHING
+	ConflictRaw string
+}
+
 // Dialect defines the interface for database-specific SQL generation.
 type Dialect interface {
 	// Name returns the dialect name (e.g., "postgresql", "mysql").
@@ -51,6 +62,23 @@ type Dialect interface {
 	// QualifyTable returns a schema-qualified table name.
 	// If schema is empty, returns just the quoted table name.
 	QualifyTable(schema, tableName string) string
+
+	// --- Query Builder Methods ---
+
+	// InsertSQL generates a parameterized INSERT statement for a single row.
+	InsertSQL(table string, data map[string]any, opts InsertOptions) (string, []any)
+
+	// InsertManySQL generates a parameterized INSERT statement for multiple rows.
+	InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any)
+
+	// SelectSQL generates a SELECT statement. WHERE clauses are raw strings (no args).
+	SelectSQL(table string, columns []string, wheres []string, orderBys []string, limit *int, offset *int) string
+
+	// UpdateSQL generates a parameterized UPDATE statement.
+	UpdateSQL(table string, set map[string]any, wheres []string) (string, []any)
+
+	// DeleteSQL generates a DELETE statement. WHERE clauses are raw strings (no args).
+	DeleteSQL(table string, wheres []string) string
 
 	// --- Migration Tracking Methods ---
 

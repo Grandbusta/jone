@@ -1,6 +1,6 @@
 # Jone
 
-A Go database migration tool with a fluent schema builder. Supports PostgreSQL and MySQL.
+A Go database query builder. Supports PostgreSQL and MySQL.
 
 ## 📦 Installation
 
@@ -82,6 +82,8 @@ var Config = jone.Config{
         TableName: "jone_migrations",
     },
 }
+
+var DB = jone.New(&Config)
 ```
 
 **MySQL:**
@@ -106,6 +108,8 @@ var Config = jone.Config{
         TableName: "jone_migrations",
     },
 }
+
+var DB = jone.New(&Config)
 ```
 
 ## 🔗 Connection Pooling
@@ -272,6 +276,45 @@ s.Raw("CREATE INDEX CONCURRENTLY idx_users_email ON users(email)")
 // Data migrations with parameters
 s.Raw("INSERT INTO settings (key, value) VALUES ($1, $2)", "version", "1.0")
 s.Raw("UPDATE users SET status = $1 WHERE created_at < $2", "legacy", "2020-01-01")
+```
+
+## 🔍 Query Builder
+
+Jone includes a Knex-inspired query builder. The database connection is lazy — it connects automatically on first query. See [QUERYBUILDER.md](QUERYBUILDER.md) for full details.
+
+```go
+import jonecfg "myapp/jone"
+
+// Single row insert with map
+result, err := jonecfg.DB.Insert(map[string]any{
+    "name":  "John",
+    "email": "john@example.com",
+}).Into("users")
+
+// Multi-row insert
+result, err := jonecfg.DB.Insert([]map[string]any{
+    {"name": "John", "email": "john@example.com"},
+    {"name": "Jane", "email": "jane@example.com"},
+}).Into("users")
+
+// Struct insert (uses db tags or snake_case field names)
+type User struct {
+    Name  string `db:"name"`
+    Email string `db:"email"`
+}
+result, err := jonecfg.DB.Insert(User{Name: "John", Email: "john@example.com"}).Into("users")
+
+// Raw SQL expressions
+result, err := jonecfg.DB.Insert(map[string]any{
+    "name":       "John",
+    "created_at": jone.Fn.Now(), // CURRENT_TIMESTAMP
+}).Into("users")
+
+// Skip conflicting rows (ON CONFLICT DO NOTHING)
+result, err := jonecfg.DB.Insert(map[string]any{
+    "email": "john@example.com",
+    "name":  "John",
+}).OnConflict().Ignore().Into("users")
 ```
 
 ## 📝 Migration Example

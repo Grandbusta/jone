@@ -54,6 +54,8 @@ var Config = jone.Config{
 		TableName: "jone_migrations",
 	},
 }
+
+var DB = jone.New(&Config)
 `
 
 // JoneFile is the parsed template for generating jonefile.go.
