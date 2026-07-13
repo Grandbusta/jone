@@ -14,6 +14,7 @@ import (
 	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/dialect"
 	"github.com/Grandbusta/jone/migration"
+	"github.com/Grandbusta/jone/query"
 	"github.com/Grandbusta/jone/schema"
 	"github.com/Grandbusta/jone/types"
 )
@@ -30,9 +31,18 @@ type TxSchema = schema.TxSchema
 type Table = schema.Table
 type Column = schema.Column
 
+// WhereGroup collects conditions for a parenthesized WHERE sub-group
+// (re-exported from query package):
+//
+//	db.Select("*").From("users").Where(func(g *jone.WhereGroup) {
+//	    g.Where("role", "admin").OrWhere("age", ">", 65)
+//	})
+type WhereGroup = query.WhereGroup
+
 // Core types (re-exported from types package)
 type CoreTable = types.Table
 type CoreColumn = types.Column
+
 // Fn provides SQL function helpers (e.g. jone.Fn.Now()).
 var Fn = types.Fn
 

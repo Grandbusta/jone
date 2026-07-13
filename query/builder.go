@@ -16,9 +16,98 @@ type Builder interface {
 	ToSQL() (string, []any)
 }
 
-// parseWhere builds a comparison condition from the variadic Where/OrWhere forms:
-// (column, value) with an implied "=", or (column, operator, value).
+// WhereGroup collects conditions for a parenthesized sub-group, built by
+// passing a func to Where/OrWhere:
+//
+//	q.Where(func(g *query.WhereGroup) {
+//	    g.Where("role", "admin").OrWhere("age", ">", 65)
+//	})
+//
+// The full condition family is available inside, including nested groups.
+type WhereGroup struct {
+	conds []dialect.Cond
+	err   error
+}
+
+// setErr records a deferred error without masking an earlier one.
+func (g *WhereGroup) setErr(err error) {
+	if g.err == nil {
+		g.err = err
+	}
+}
+
+// Where adds a parameterized condition to the group: Where(column, value)
+// for equality, Where(column, operator, value), or Where(func) for a nested group.
+func (g *WhereGroup) Where(args ...any) *WhereGroup {
+	cond, err := parseWhere(false, args)
+	if err != nil {
+		g.setErr(err)
+		return g
+	}
+	g.conds = append(g.conds, cond)
+	return g
+}
+
+// OrWhere is like Where but joins with OR instead of AND.
+func (g *WhereGroup) OrWhere(args ...any) *WhereGroup {
+	cond, err := parseWhere(true, args)
+	if err != nil {
+		g.setErr(err)
+		return g
+	}
+	g.conds = append(g.conds, cond)
+	return g
+}
+
+// WhereIn adds an IN condition. Accepts variadic values or a single slice.
+func (g *WhereGroup) WhereIn(column string, values ...any) *WhereGroup {
+	g.conds = append(g.conds, dialect.Cond{Kind: dialect.CondIn, Column: column, Values: inValues(values)})
+	return g
+}
+
+// WhereNotIn adds a NOT IN condition.
+func (g *WhereGroup) WhereNotIn(column string, values ...any) *WhereGroup {
+	g.conds = append(g.conds, dialect.Cond{Kind: dialect.CondIn, Not: true, Column: column, Values: inValues(values)})
+	return g
+}
+
+// WhereNull adds an IS NULL condition.
+func (g *WhereGroup) WhereNull(column string) *WhereGroup {
+	g.conds = append(g.conds, dialect.Cond{Kind: dialect.CondNull, Column: column})
+	return g
+}
+
+// WhereNotNull adds an IS NOT NULL condition.
+func (g *WhereGroup) WhereNotNull(column string) *WhereGroup {
+	g.conds = append(g.conds, dialect.Cond{Kind: dialect.CondNull, Not: true, Column: column})
+	return g
+}
+
+// WhereRaw adds a raw SQL condition with ? placeholders bound to args.
+func (g *WhereGroup) WhereRaw(raw string, args ...any) *WhereGroup {
+	cond, err := parseWhereRaw(raw, args)
+	if err != nil {
+		g.setErr(err)
+		return g
+	}
+	g.conds = append(g.conds, cond)
+	return g
+}
+
+// parseWhere builds a condition from the variadic Where/OrWhere forms:
+// (column, value) with an implied "=", (column, operator, value), or a
+// single func(*WhereGroup) for a parenthesized sub-group.
 func parseWhere(or bool, args []any) (dialect.Cond, error) {
+	if len(args) == 1 {
+		if fn, ok := args[0].(func(*WhereGroup)); ok {
+			g := &WhereGroup{}
+			fn(g)
+			if g.err != nil {
+				return dialect.Cond{}, g.err
+			}
+			return dialect.Cond{Kind: dialect.CondGroup, Or: or, Group: g.conds}, nil
+		}
+	}
 	switch len(args) {
 	case 2:
 		col, ok := args[0].(string)
@@ -37,7 +126,7 @@ func parseWhere(or bool, args []any) (dialect.Cond, error) {
 		}
 		return dialect.Cond{Kind: dialect.CondCmp, Or: or, Column: col, Op: op, Value: args[2]}, nil
 	default:
-		return dialect.Cond{}, fmt.Errorf("Where expects (column, value) or (column, operator, value), got %d args", len(args))
+		return dialect.Cond{}, fmt.Errorf("Where expects (column, value), (column, operator, value), or (func(*WhereGroup)), got %d args", len(args))
 	}
 }
 

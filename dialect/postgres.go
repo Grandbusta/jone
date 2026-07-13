@@ -513,11 +513,9 @@ func (d *PostgresDialect) SelectSQL(table string, columns []string, wheres []Con
 
 	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
 
-	var args []any
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
-		args = whereArgs
 	}
 	if len(orderBys) > 0 {
 		sql += " ORDER BY " + compileOrderBys(orderBys, d.QuoteIdentifier)
@@ -551,8 +549,8 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 
 	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
 
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, paramIdx)
+	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, paramIdx)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 		args = append(args, whereArgs...)
 	}
@@ -562,11 +560,9 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 // DeleteSQL generates a parameterized DELETE statement for PostgreSQL.
 func (d *PostgresDialect) DeleteSQL(table string, wheres []Cond) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
-	var args []any
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
-		args = whereArgs
 	}
 	return sql + ";", args
 }

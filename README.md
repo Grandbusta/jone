@@ -322,6 +322,9 @@ rows, err := jonecfg.DB.Select("id", "name").From("users").
     Where("active", true).              // (column, value) → implied =
     WhereIn("status", []string{"active", "pending"}).
     WhereNull("deleted_at").
+    Where(func(g *jone.WhereGroup) {    // parenthesized group
+        g.Where("role", "admin").OrWhere("verified", true)
+    }).
     OrderBy("created_at", "desc").
     Limit(10).
     Exec()

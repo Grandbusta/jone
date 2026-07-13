@@ -104,6 +104,85 @@ func TestWhereIn_SliceEqualsVariadic(t *testing.T) {
 	}
 }
 
+func TestWhereGroup_BuildsParenthesizedSQL(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, args := NewSelectBuilder(nil, pg, nil, nil).
+		From("users").
+		Where("active", true).
+		Where(func(g *WhereGroup) {
+			g.Where("role", "admin").OrWhere("age", ">", 65)
+		}).
+		ToSQL()
+
+	want := `SELECT * FROM "users" WHERE "active" = $1 AND ("role" = $2 OR "age" > $3);`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 3 || args[0] != true || args[1] != "admin" || args[2] != 65 {
+		t.Errorf("args = %v, want [true admin 65]", args)
+	}
+}
+
+func TestWhereGroup_Nested(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder(nil, pg, nil, nil).
+		From("users").
+		Where(func(g *WhereGroup) {
+			g.Where("a", 1).
+				OrWhere(func(g2 *WhereGroup) {
+					g2.WhereNull("deleted_at").Where("plan", "pro")
+				})
+		}).
+		ToSQL()
+
+	want := `SELECT * FROM "users" WHERE ("a" = $1 OR ("deleted_at" IS NULL AND "plan" = $2));`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestWhereGroup_OrWhereFunc(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewDeleteBuilder("users", pg, nil, nil).
+		Where("a", 1).
+		OrWhere(func(g *WhereGroup) {
+			g.Where("b", 2).Where("c", 3)
+		}).
+		ToSQL()
+
+	want := `DELETE FROM "users" WHERE "a" = $1 OR ("b" = $2 AND "c" = $3);`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestWhereGroup_ErrorPropagates(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	_, err := NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("users").
+		Where(func(g *WhereGroup) {
+			g.Where("only-one") // bad arity inside the group
+		}).
+		Exec()
+	if err == nil || !strings.Contains(err.Error(), "Where expects") {
+		t.Errorf("expected group parse error at Exec, got %v", err)
+	}
+
+	_, err = NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("users").
+		Where(func(g *WhereGroup) {
+			g.WhereRaw("a = ?", 1, 2) // mismatch inside the group
+		}).
+		Exec()
+	if err == nil || !strings.Contains(err.Error(), "placeholders") {
+		t.Errorf("expected group WhereRaw error at Exec, got %v", err)
+	}
+}
+
 func TestOrderBy_InvalidDirection(t *testing.T) {
 	pg := &dialect.PostgresDialect{}
 

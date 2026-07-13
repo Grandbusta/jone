@@ -114,6 +114,168 @@ func TestSelectSQL_Wheres(t *testing.T) {
 	}
 }
 
+func TestSelectSQL_Groups(t *testing.T) {
+	pg := &PostgresDialect{}
+	my := &MySQLDialect{}
+
+	tests := []struct {
+		name     string
+		dialect  Dialect
+		wheres   []Cond
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			name:    "cond and group, numbering crosses boundary",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+				{Kind: CondGroup, Group: []Cond{
+					{Kind: CondCmp, Column: "b", Op: "=", Value: 2},
+					{Kind: CondCmp, Or: true, Column: "c", Op: "=", Value: 3},
+				}},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "a" = $1 AND ("b" = $2 OR "c" = $3);`,
+			wantArgs: []any{1, 2, 3},
+		},
+		{
+			name:    "mysql group",
+			dialect: my,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+				{Kind: CondGroup, Group: []Cond{
+					{Kind: CondCmp, Column: "b", Op: "=", Value: 2},
+					{Kind: CondCmp, Or: true, Column: "c", Op: "=", Value: 3},
+				}},
+			},
+			wantSQL:  "SELECT * FROM `users` WHERE `a` = ? AND (`b` = ? OR `c` = ?);",
+			wantArgs: []any{1, 2, 3},
+		},
+		{
+			name:    "group as first condition",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondGroup, Group: []Cond{
+					{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+					{Kind: CondCmp, Or: true, Column: "b", Op: "=", Value: 2},
+				}},
+				{Kind: CondCmp, Column: "c", Op: "=", Value: 3},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE ("a" = $1 OR "b" = $2) AND "c" = $3;`,
+			wantArgs: []any{1, 2, 3},
+		},
+		{
+			name:    "or-joined group",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+				{Kind: CondGroup, Or: true, Group: []Cond{
+					{Kind: CondCmp, Column: "b", Op: "=", Value: 2},
+					{Kind: CondCmp, Column: "c", Op: "=", Value: 3},
+				}},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "a" = $1 OR ("b" = $2 AND "c" = $3);`,
+			wantArgs: []any{1, 2, 3},
+		},
+		{
+			name:    "nested group",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondGroup, Group: []Cond{
+					{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+					{Kind: CondGroup, Or: true, Group: []Cond{
+						{Kind: CondNull, Column: "deleted_at"},
+						{Kind: CondCmp, Column: "b", Op: "=", Value: 2},
+					}},
+				}},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE ("a" = $1 OR ("deleted_at" IS NULL AND "b" = $2));`,
+			wantArgs: []any{1, 2},
+		},
+		{
+			name:     "empty group alone omits WHERE entirely",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondGroup}},
+			wantSQL:  `SELECT * FROM "users";`,
+			wantArgs: nil,
+		},
+		{
+			name:    "empty group between conds leaves no doubled connector",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "a", Op: "=", Value: 1},
+				{Kind: CondGroup},
+				{Kind: CondCmp, Column: "b", Op: "=", Value: 2},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "a" = $1 AND "b" = $2;`,
+			wantArgs: []any{1, 2},
+		},
+		{
+			name:    "group containing only empty group vanishes",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondGroup, Group: []Cond{{Kind: CondGroup}}},
+			},
+			wantSQL:  `SELECT * FROM "users";`,
+			wantArgs: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, args := tt.dialect.SelectSQL("users", nil, tt.wheres, nil, nil, nil)
+			if sql != tt.wantSQL {
+				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
+			}
+			if !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestUpdateSQL_GroupWithRawAfterSetParams(t *testing.T) {
+	pg := &PostgresDialect{}
+
+	set := map[string]any{"name": "John"}
+	wheres := []Cond{
+		{Kind: CondGroup, Group: []Cond{
+			{Kind: CondRaw, Raw: "lower(email) = ?", Values: []any{"j@x.com"}},
+			{Kind: CondCmp, Or: true, Column: "id", Op: "=", Value: 7},
+		}},
+	}
+
+	sql, args := pg.UpdateSQL("users", set, wheres)
+	wantSQL := `UPDATE "users" SET "name" = $1 WHERE (lower(email) = $2 OR "id" = $3);`
+	if sql != wantSQL {
+		t.Errorf("SQL = %q, want %q", sql, wantSQL)
+	}
+	wantArgs := []any{"John", "j@x.com", 7}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Errorf("args = %v, want %v", args, wantArgs)
+	}
+}
+
+func TestUpdateAndDeleteSQL_EmptyGroupOmitsWhere(t *testing.T) {
+	pg := &PostgresDialect{}
+
+	sql, args := pg.UpdateSQL("users", map[string]any{"name": "John"}, []Cond{{Kind: CondGroup}})
+	if want := `UPDATE "users" SET "name" = $1;`; sql != want {
+		t.Errorf("update SQL = %q, want %q", sql, want)
+	}
+	if !reflect.DeepEqual(args, []any{"John"}) {
+		t.Errorf("update args = %v, want [John]", args)
+	}
+
+	sql, args = pg.DeleteSQL("users", []Cond{{Kind: CondGroup}})
+	if want := `DELETE FROM "users";`; sql != want {
+		t.Errorf("delete SQL = %q, want %q", sql, want)
+	}
+	if args != nil {
+		t.Errorf("delete args = %v, want nil", args)
+	}
+}
+
 func TestSelectSQL_OrderBy(t *testing.T) {
 	pg := &PostgresDialect{}
 	my := &MySQLDialect{}

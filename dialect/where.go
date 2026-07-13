@@ -17,6 +17,8 @@ const (
 	CondNull
 	// CondRaw is a raw SQL fragment with ? placeholders bound to Values.
 	CondRaw
+	// CondGroup is a parenthesized sub-group of conditions.
+	CondGroup
 )
 
 // Cond represents a single WHERE condition built by the query builders.
@@ -29,6 +31,7 @@ type Cond struct {
 	Value  any    // CondCmp bound value
 	Values []any  // CondIn values / CondRaw args
 	Raw    string // CondRaw SQL containing ? placeholders
+	Group  []Cond // CondGroup nested conditions, compiled inside parentheses
 }
 
 // compileWheres renders the WHERE clause body (without the "WHERE " prefix)
@@ -38,9 +41,10 @@ type Cond struct {
 // SET args), so placeholder numbering continues from there.
 //
 // Conditions are joined left-to-right with AND/OR per each condition's Or
-// flag, without parenthesization — standard SQL precedence applies.
+// flag. Groups compile inside parentheses; empty groups vanish (an empty
+// result string means no condition survived, and the caller should omit the
+// WHERE clause entirely).
 func compileWheres(conds []Cond, quote func(string) string, placeholder func(int) string, startIdx int) (string, []any) {
-	var sb strings.Builder
 	var args []any
 	paramIdx := startIdx
 
@@ -50,27 +54,22 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 		return placeholder(paramIdx)
 	}
 
-	for i, c := range conds {
-		if i > 0 {
-			if c.Or {
-				sb.WriteString(" OR ")
-			} else {
-				sb.WriteString(" AND ")
-			}
-		}
+	// renderCond returns the SQL fragment for one condition, or "" if it
+	// compiles to nothing (an empty group).
+	var render func(conds []Cond) string
+	var renderCond func(c Cond) string
 
+	renderCond = func(c Cond) string {
 		switch c.Kind {
 		case CondCmp:
-			fmt.Fprintf(&sb, "%s %s %s", quote(c.Column), c.Op, nextPlaceholder(c.Value))
+			return fmt.Sprintf("%s %s %s", quote(c.Column), c.Op, nextPlaceholder(c.Value))
 		case CondIn:
 			if len(c.Values) == 0 {
 				// Empty IN matches nothing; empty NOT IN matches everything.
 				if c.Not {
-					sb.WriteString("1 = 1")
-				} else {
-					sb.WriteString("1 = 0")
+					return "1 = 1"
 				}
-				continue
+				return "1 = 0"
 			}
 			placeholders := make([]string, len(c.Values))
 			for j, v := range c.Values {
@@ -80,16 +79,16 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 			if c.Not {
 				op = "NOT IN"
 			}
-			fmt.Fprintf(&sb, "%s %s (%s)", quote(c.Column), op, strings.Join(placeholders, ", "))
+			return fmt.Sprintf("%s %s (%s)", quote(c.Column), op, strings.Join(placeholders, ", "))
 		case CondNull:
 			if c.Not {
-				sb.WriteString(quote(c.Column) + " IS NOT NULL")
-			} else {
-				sb.WriteString(quote(c.Column) + " IS NULL")
+				return quote(c.Column) + " IS NOT NULL"
 			}
+			return quote(c.Column) + " IS NULL"
 		case CondRaw:
 			// Rewrite each ? to the dialect placeholder, binding Values in order.
 			// Every ? is treated as a placeholder, including inside string literals.
+			var sb strings.Builder
 			valIdx := 0
 			for _, r := range c.Raw {
 				if r == '?' && valIdx < len(c.Values) {
@@ -99,8 +98,37 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 					sb.WriteRune(r)
 				}
 			}
+			return sb.String()
+		case CondGroup:
+			body := render(c.Group)
+			if body == "" {
+				return ""
+			}
+			return "(" + body + ")"
 		}
+		return ""
 	}
 
-	return sb.String(), args
+	render = func(conds []Cond) string {
+		var sb strings.Builder
+		wrote := false
+		for _, c := range conds {
+			frag := renderCond(c)
+			if frag == "" {
+				continue
+			}
+			if wrote {
+				if c.Or {
+					sb.WriteString(" OR ")
+				} else {
+					sb.WriteString(" AND ")
+				}
+			}
+			sb.WriteString(frag)
+			wrote = true
+		}
+		return sb.String()
+	}
+
+	return render(conds), args
 }

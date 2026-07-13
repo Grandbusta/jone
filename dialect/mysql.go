@@ -502,11 +502,9 @@ func (d *MySQLDialect) SelectSQL(table string, columns []string, wheres []Cond, 
 
 	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
 
-	var args []any
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
-		args = whereArgs
 	}
 	if len(orderBys) > 0 {
 		sql += " ORDER BY " + compileOrderBys(orderBys, d.QuoteIdentifier)
@@ -537,8 +535,8 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 
 	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
 
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 		args = append(args, whereArgs...)
 	}
@@ -548,11 +546,9 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 // DeleteSQL generates a parameterized DELETE statement for MySQL.
 func (d *MySQLDialect) DeleteSQL(table string, wheres []Cond) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
-	var args []any
-	if len(wheres) > 0 {
-		whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
-		args = whereArgs
 	}
 	return sql + ";", args
 }
