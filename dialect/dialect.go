@@ -6,6 +6,20 @@ import (
 	"github.com/Grandbusta/jone/types"
 )
 
+// InsertOptions holds options for INSERT query generation.
+type InsertOptions struct {
+	OnConflictIgnore bool
+	// ConflictColumns are the column names for the ON CONFLICT target.
+	// e.g. ["email"] → ON CONFLICT ("email") DO NOTHING
+	ConflictColumns []string
+	// ConflictRaw is a raw conflict target expression used as-is.
+	// e.g. "(email) WHERE active" → ON CONFLICT (email) WHERE active DO NOTHING
+	ConflictRaw string
+	// Returning are column names for a RETURNING clause (dialects that
+	// support it only; ignored otherwise).
+	Returning []string
+}
+
 // Dialect defines the interface for database-specific SQL generation.
 type Dialect interface {
 	// Name returns the dialect name (e.g., "postgresql", "mysql").
@@ -51,6 +65,29 @@ type Dialect interface {
 	// QualifyTable returns a schema-qualified table name.
 	// If schema is empty, returns just the quoted table name.
 	QualifyTable(schema, tableName string) string
+
+	// --- Query Builder Methods ---
+
+	// InsertSQL generates a parameterized INSERT statement for a single row.
+	InsertSQL(table string, data map[string]any, opts InsertOptions) (string, []any)
+
+	// InsertManySQL generates a parameterized INSERT statement for multiple rows.
+	InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any)
+
+	// SelectSQL generates a parameterized SELECT statement.
+	SelectSQL(table string, columns []string, wheres []Cond, orderBys []OrderClause, limit *int, offset *int) (string, []any)
+
+	// UpdateSQL generates a parameterized UPDATE statement.
+	// SET params come first; WHERE params continue the numbering.
+	// returning columns are appended as a RETURNING clause where supported.
+	UpdateSQL(table string, set map[string]any, wheres []Cond, returning []string) (string, []any)
+
+	// DeleteSQL generates a parameterized DELETE statement.
+	// returning columns are appended as a RETURNING clause where supported.
+	DeleteSQL(table string, wheres []Cond, returning []string) (string, []any)
+
+	// SupportsReturning reports whether the dialect supports RETURNING clauses.
+	SupportsReturning() bool
 
 	// --- Migration Tracking Methods ---
 

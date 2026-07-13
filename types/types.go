@@ -2,6 +2,22 @@
 // This package has no internal dependencies to prevent import cycles.
 package types
 
+// RawExpr represents a raw SQL expression that should not be parameterized or quoted.
+type RawExpr struct {
+	Expr string
+}
+
+// Functions provides SQL function helpers.
+type Functions struct{}
+
+// Now returns a raw CURRENT_TIMESTAMP expression.
+func (f *Functions) Now() RawExpr {
+	return RawExpr{Expr: "CURRENT_TIMESTAMP"}
+}
+
+// Fn is the global functions instance for use as jone.Fn.Now(), etc.
+var Fn = &Functions{}
+
 // ActionType represents the type of table alteration action.
 type ActionType string
 

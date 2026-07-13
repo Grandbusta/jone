@@ -14,6 +14,7 @@ import (
 	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/dialect"
 	"github.com/Grandbusta/jone/migration"
+	"github.com/Grandbusta/jone/query"
 	"github.com/Grandbusta/jone/schema"
 	"github.com/Grandbusta/jone/types"
 )
@@ -26,15 +27,36 @@ type Migrations = config.Migrations
 
 // Schema types (re-exported from schema package)
 type Schema = schema.Schema
+type TxSchema = schema.TxSchema
 type Table = schema.Table
 type Column = schema.Column
+
+// WhereGroup collects conditions for a parenthesized WHERE sub-group
+// (re-exported from query package):
+//
+//	db.Select("*").From("users").Where(func(g *jone.WhereGroup) {
+//	    g.Where("role", "admin").OrWhere("age", ">", 65)
+//	})
+type WhereGroup = query.WhereGroup
 
 // Core types (re-exported from types package)
 type CoreTable = types.Table
 type CoreColumn = types.Column
 
-// NewSchema creates a new Schema with the given config.
-var NewSchema = schema.New
+// Fn provides SQL function helpers (e.g. jone.Fn.Now()).
+var Fn = types.Fn
+
+// Raw wraps a string as a raw SQL expression, bypassing parameterization.
+// Use for SQL functions, expressions, or conflict targets:
+//
+//	jone.Raw("NOW()")
+//	jone.Raw("(email) WHERE active")
+func Raw(expr string) types.RawExpr {
+	return types.RawExpr{Expr: expr}
+}
+
+// New creates a new database instance with the given config.
+var New = schema.New
 
 // Migration types (re-exported from migration package)
 type Registration = migration.Registration

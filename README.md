@@ -1,6 +1,6 @@
 # Jone
 
-A Go database migration tool with a fluent schema builder. Supports PostgreSQL and MySQL.
+A Go database query builder. Supports PostgreSQL and MySQL.
 
 ## 📦 Installation
 
@@ -82,6 +82,8 @@ var Config = jone.Config{
         TableName: "jone_migrations",
     },
 }
+
+var DB = jone.New(&Config)
 ```
 
 **MySQL:**
@@ -106,6 +108,8 @@ var Config = jone.Config{
         TableName: "jone_migrations",
     },
 }
+
+var DB = jone.New(&Config)
 ```
 
 ## 🔗 Connection Pooling
@@ -272,6 +276,77 @@ s.Raw("CREATE INDEX CONCURRENTLY idx_users_email ON users(email)")
 // Data migrations with parameters
 s.Raw("INSERT INTO settings (key, value) VALUES ($1, $2)", "version", "1.0")
 s.Raw("UPDATE users SET status = $1 WHERE created_at < $2", "legacy", "2020-01-01")
+```
+
+## 🔍 Query Builder
+
+Jone includes a fluent query builder. The database connection is lazy — it connects automatically on first query.
+
+```go
+import jonecfg "myapp/jone"
+
+// Single row insert with map
+result, err := jonecfg.DB.Insert(map[string]any{
+    "name":  "John",
+    "email": "john@example.com",
+}).Into("users").Exec()
+
+// Multi-row insert
+result, err := jonecfg.DB.Insert([]map[string]any{
+    {"name": "John", "email": "john@example.com"},
+    {"name": "Jane", "email": "jane@example.com"},
+}).Into("users").Exec()
+
+// Struct insert (uses db tags or snake_case field names)
+type User struct {
+    Name  string `db:"name"`
+    Email string `db:"email"`
+}
+result, err := jonecfg.DB.Insert(User{Name: "John", Email: "john@example.com"}).Into("users").Exec()
+
+// Raw SQL expressions
+result, err := jonecfg.DB.Insert(map[string]any{
+    "name":       "John",
+    "created_at": jone.Fn.Now(), // CURRENT_TIMESTAMP
+}).Into("users").Exec()
+
+// Skip conflicting rows (ON CONFLICT DO NOTHING)
+result, err := jonecfg.DB.Insert(map[string]any{
+    "email": "john@example.com",
+    "name":  "John",
+}).OnConflict().Ignore().Into("users").Exec()
+
+// Get generated values back (PostgreSQL RETURNING)
+rows, err := jonecfg.DB.Insert(map[string]any{
+    "name": "John",
+}).Into("users").ExecReturning("id")
+id := rows[0]["id"]
+
+// SELECT with parameterized WHERE
+rows, err := jonecfg.DB.Select("id", "name").From("users").
+    Where("age", ">", 18).              // (column, operator, value)
+    Where("active", true).              // (column, value) → implied =
+    WhereIn("status", []string{"active", "pending"}).
+    WhereNull("deleted_at").
+    Where(func(g *jone.WhereGroup) {    // parenthesized group
+        g.Where("role", "admin").OrWhere("verified", true)
+    }).
+    OrderBy("created_at", "desc").
+    Limit(10).
+    Exec()
+
+// First row as a map (sql.ErrNoRows if none)
+row, err := jonecfg.DB.Select("*").From("users").Where("id", 1).First()
+
+// UPDATE — SET and WHERE are both parameterized
+result, err := jonecfg.DB.Update("users").
+    Set("name", "Alice").
+    Set("updated_at", jone.Fn.Now()).
+    Where("id", 1).
+    Exec()
+
+// DELETE
+result, err := jonecfg.DB.Delete("users").Where("active", false).Exec()
 ```
 
 ## 📝 Migration Example

@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/Grandbusta/jone/config"
 	"github.com/Grandbusta/jone/dialect"
+	"github.com/Grandbusta/jone/query"
 )
 
 // Execer is an interface for executing SQL (both *sql.DB and *sql.Tx).
@@ -18,11 +20,13 @@ type Execer interface {
 
 // Schema provides methods for database schema operations.
 type Schema struct {
-	dialect dialect.Dialect
-	db      *sql.DB // original connection (for Begin, Close)
-	execer  Execer  // current executor (db or tx)
-	config  *config.Config
-	schema  string // current schema context
+	dialect  dialect.Dialect
+	db       *sql.DB // original connection (for Begin, Close)
+	execer   Execer  // current executor (db or tx)
+	config   *config.Config
+	schema   string // current schema context
+	openOnce sync.Once
+	openErr  error
 }
 
 // fatal logs the error and exits. Used for unrecoverable schema errors during migrations.
@@ -94,10 +98,34 @@ func (s *Schema) SetDB(db *sql.DB) {
 	s.execer = db
 }
 
+// ensureOpen lazily opens the database connection on first use.
+// Safe for concurrent use — only connects once.
+func (s *Schema) ensureOpen() error {
+	s.openOnce.Do(func() {
+		if s.db != nil {
+			return // already opened explicitly via Open()
+		}
+		s.openErr = s.open()
+	})
+	return s.openErr
+}
+
 // Open opens a database connection using the config.
-// It uses the dialect to determine the driver and DSN format, and applies
-// any connection pool settings from the config.
+// Can be called explicitly for eager connection, or left to ensureOpen for lazy connection.
 func (s *Schema) Open() error {
+	var err error
+	s.openOnce.Do(func() {
+		err = s.open()
+		s.openErr = err
+	})
+	if err != nil {
+		return err
+	}
+	return s.openErr
+}
+
+// open is the internal connection logic.
+func (s *Schema) open() error {
 	driver := s.dialect.DriverName()
 	dsn := s.dialect.FormatDSN(s.config.Connection)
 	db, err := sql.Open(driver, dsn)
@@ -147,6 +175,78 @@ func (s *Schema) Raw(sqlStmt string, args ...any) {
 	} else {
 		fmt.Println(sqlStmt)
 	}
+}
+
+// Insert starts building an INSERT query with the given data.
+// Accepts map[string]any for a single row, or []map[string]any for multiple rows.
+func (s *Schema) Insert(data any) *query.InsertBuilder {
+	err := s.ensureOpen()
+	return query.NewInsertBuilder(data, s.dialect, s.execer, err)
+}
+
+// Select starts building a SELECT query with the given columns.
+func (s *Schema) Select(columns ...string) *query.SelectBuilder {
+	err := s.ensureOpen()
+	return query.NewSelectBuilder(columns, s.dialect, s.execer, err)
+}
+
+// Update starts building an UPDATE query for the given table.
+func (s *Schema) Update(table string) *query.UpdateBuilder {
+	err := s.ensureOpen()
+	return query.NewUpdateBuilder(table, s.dialect, s.execer, err)
+}
+
+// Delete starts building a DELETE query for the given table.
+func (s *Schema) Delete(table string) *query.DeleteBuilder {
+	err := s.ensureOpen()
+	return query.NewDeleteBuilder(table, s.dialect, s.execer, err)
+}
+
+// Transaction runs fn inside a database transaction.
+// Automatically commits on nil return, rolls back on error.
+func (s *Schema) Transaction(fn func(tx *Schema) error) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	txSchema := s.WithTx(tx)
+	if err := fn(txSchema); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// TxSchema is a Schema scoped to an active transaction.
+// Use Commit() or Rollback() to finalize the transaction.
+type TxSchema struct {
+	*Schema
+	tx *sql.Tx
+}
+
+// Commit commits the transaction.
+func (t *TxSchema) Commit() error {
+	return t.tx.Commit()
+}
+
+// Rollback aborts the transaction.
+func (t *TxSchema) Rollback() error {
+	return t.tx.Rollback()
+}
+
+// Begin starts a new transaction and returns a TxSchema for manual commit/rollback control.
+func (s *Schema) Begin() (*TxSchema, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &TxSchema{Schema: s.WithTx(tx), tx: tx}, nil
 }
 
 func (s *Schema) Table(name string, builder func(t *Table)) {
