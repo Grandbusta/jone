@@ -280,7 +280,7 @@ s.Raw("UPDATE users SET status = $1 WHERE created_at < $2", "legacy", "2020-01-0
 
 ## 🔍 Query Builder
 
-Jone includes a Knex-inspired query builder. The database connection is lazy — it connects automatically on first query. See [QUERYBUILDER.md](QUERYBUILDER.md) for full details.
+Jone includes a fluent query builder. The database connection is lazy — it connects automatically on first query.
 
 ```go
 import jonecfg "myapp/jone"
