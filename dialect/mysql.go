@@ -519,7 +519,8 @@ func (d *MySQLDialect) SelectSQL(table string, columns []string, wheres []Cond, 
 }
 
 // UpdateSQL generates a parameterized UPDATE statement for MySQL.
-func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond) (string, []any) {
+// The returning param is ignored — MySQL has no RETURNING support.
+func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond, returning []string) (string, []any) {
 	keys := sortedKeys(set)
 	setClauses := make([]string, len(keys))
 	var args []any
@@ -544,13 +545,19 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 }
 
 // DeleteSQL generates a parameterized DELETE statement for MySQL.
-func (d *MySQLDialect) DeleteSQL(table string, wheres []Cond) (string, []any) {
+// The returning param is ignored — MySQL has no RETURNING support.
+func (d *MySQLDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
 	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 	}
 	return sql + ";", args
+}
+
+// SupportsReturning reports that MySQL does not support RETURNING clauses.
+func (d *MySQLDialect) SupportsReturning() bool {
+	return false
 }
 
 // --- Migration Tracking Methods ---

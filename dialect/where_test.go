@@ -245,7 +245,7 @@ func TestUpdateSQL_GroupWithRawAfterSetParams(t *testing.T) {
 		}},
 	}
 
-	sql, args := pg.UpdateSQL("users", set, wheres)
+	sql, args := pg.UpdateSQL("users", set, wheres, nil)
 	wantSQL := `UPDATE "users" SET "name" = $1 WHERE (lower(email) = $2 OR "id" = $3);`
 	if sql != wantSQL {
 		t.Errorf("SQL = %q, want %q", sql, wantSQL)
@@ -259,7 +259,7 @@ func TestUpdateSQL_GroupWithRawAfterSetParams(t *testing.T) {
 func TestUpdateAndDeleteSQL_EmptyGroupOmitsWhere(t *testing.T) {
 	pg := &PostgresDialect{}
 
-	sql, args := pg.UpdateSQL("users", map[string]any{"name": "John"}, []Cond{{Kind: CondGroup}})
+	sql, args := pg.UpdateSQL("users", map[string]any{"name": "John"}, []Cond{{Kind: CondGroup}}, nil)
 	if want := `UPDATE "users" SET "name" = $1;`; sql != want {
 		t.Errorf("update SQL = %q, want %q", sql, want)
 	}
@@ -267,7 +267,7 @@ func TestUpdateAndDeleteSQL_EmptyGroupOmitsWhere(t *testing.T) {
 		t.Errorf("update args = %v, want [John]", args)
 	}
 
-	sql, args = pg.DeleteSQL("users", []Cond{{Kind: CondGroup}})
+	sql, args = pg.DeleteSQL("users", []Cond{{Kind: CondGroup}}, nil)
 	if want := `DELETE FROM "users";`; sql != want {
 		t.Errorf("delete SQL = %q, want %q", sql, want)
 	}
@@ -335,7 +335,7 @@ func TestUpdateSQL_WhereParamContinuation(t *testing.T) {
 	set := map[string]any{"email": "j@x.com", "name": "John"} // sorted: email, name
 	wheres := []Cond{{Kind: CondCmp, Column: "id", Op: "=", Value: 7}}
 
-	sql, args := pg.UpdateSQL("users", set, wheres)
+	sql, args := pg.UpdateSQL("users", set, wheres, nil)
 	wantSQL := `UPDATE "users" SET "email" = $1, "name" = $2 WHERE "id" = $3;`
 	if sql != wantSQL {
 		t.Errorf("SQL = %q, want %q", sql, wantSQL)
@@ -357,7 +357,7 @@ func TestUpdateSQL_RawExprSetSkipsParam(t *testing.T) {
 	}
 	wheres := []Cond{{Kind: CondRaw, Raw: "id = ?", Values: []any{7}}}
 
-	sql, args := pg.UpdateSQL("users", set, wheres)
+	sql, args := pg.UpdateSQL("users", set, wheres, nil)
 	wantSQL := `UPDATE "users" SET "name" = $1, "updated_at" = CURRENT_TIMESTAMP WHERE id = $2;`
 	if sql != wantSQL {
 		t.Errorf("SQL = %q, want %q", sql, wantSQL)
@@ -374,7 +374,7 @@ func TestUpdateSQL_MySQLWhereArgsOrdered(t *testing.T) {
 	set := map[string]any{"name": "John"}
 	wheres := []Cond{{Kind: CondCmp, Column: "id", Op: "=", Value: 7}}
 
-	sql, args := my.UpdateSQL("users", set, wheres)
+	sql, args := my.UpdateSQL("users", set, wheres, nil)
 	wantSQL := "UPDATE `users` SET `name` = ? WHERE `id` = ?;"
 	if sql != wantSQL {
 		t.Errorf("SQL = %q, want %q", sql, wantSQL)
@@ -391,7 +391,7 @@ func TestDeleteSQL_ReturnsArgs(t *testing.T) {
 
 	wheres := []Cond{{Kind: CondCmp, Column: "id", Op: "=", Value: 7}}
 
-	sql, args := pg.DeleteSQL("users", wheres)
+	sql, args := pg.DeleteSQL("users", wheres, nil)
 	if want := `DELETE FROM "users" WHERE "id" = $1;`; sql != want {
 		t.Errorf("postgres SQL = %q, want %q", sql, want)
 	}
@@ -399,7 +399,7 @@ func TestDeleteSQL_ReturnsArgs(t *testing.T) {
 		t.Errorf("postgres args = %v, want [7]", args)
 	}
 
-	sql, args = my.DeleteSQL("users", wheres)
+	sql, args = my.DeleteSQL("users", wheres, nil)
 	if want := "DELETE FROM `users` WHERE `id` = ?;"; sql != want {
 		t.Errorf("mysql SQL = %q, want %q", sql, want)
 	}

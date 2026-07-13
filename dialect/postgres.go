@@ -427,11 +427,12 @@ func (d *PostgresDialect) InsertSQL(table string, data map[string]any, opts Inse
 
 	conflict := d.buildConflictClause(opts)
 
-	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)%s;",
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)%s%s;",
 		d.QuoteIdentifier(table),
 		strings.Join(cols, ", "),
 		strings.Join(placeholders, ", "),
-		conflict)
+		conflict,
+		returningClause(opts.Returning, d.QuoteIdentifier))
 
 	return sql, args
 }
@@ -464,11 +465,12 @@ func (d *PostgresDialect) InsertManySQL(table string, data []map[string]any, opt
 
 	conflict := d.buildConflictClause(opts)
 
-	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s%s;",
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s%s%s;",
 		d.QuoteIdentifier(table),
 		strings.Join(cols, ", "),
 		strings.Join(valueSets, ", "),
-		conflict)
+		conflict,
+		returningClause(opts.Returning, d.QuoteIdentifier))
 
 	return sql, args
 }
@@ -531,7 +533,7 @@ func (d *PostgresDialect) SelectSQL(table string, columns []string, wheres []Con
 
 // UpdateSQL generates a parameterized UPDATE statement for PostgreSQL.
 // WHERE param numbering continues after the SET params.
-func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []Cond) (string, []any) {
+func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []Cond, returning []string) (string, []any) {
 	keys := sortedKeys(set)
 	setClauses := make([]string, len(keys))
 	var args []any
@@ -554,17 +556,24 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 		sql += " WHERE " + whereSQL
 		args = append(args, whereArgs...)
 	}
+	sql += returningClause(returning, d.QuoteIdentifier)
 	return sql + ";", args
 }
 
 // DeleteSQL generates a parameterized DELETE statement for PostgreSQL.
-func (d *PostgresDialect) DeleteSQL(table string, wheres []Cond) (string, []any) {
+func (d *PostgresDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
 	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 	}
+	sql += returningClause(returning, d.QuoteIdentifier)
 	return sql + ";", args
+}
+
+// SupportsReturning reports that PostgreSQL supports RETURNING clauses.
+func (d *PostgresDialect) SupportsReturning() bool {
+	return true
 }
 
 // --- Migration Tracking Methods ---

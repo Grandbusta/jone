@@ -15,6 +15,9 @@ type InsertOptions struct {
 	// ConflictRaw is a raw conflict target expression used as-is.
 	// e.g. "(email) WHERE active" → ON CONFLICT (email) WHERE active DO NOTHING
 	ConflictRaw string
+	// Returning are column names for a RETURNING clause (dialects that
+	// support it only; ignored otherwise).
+	Returning []string
 }
 
 // Dialect defines the interface for database-specific SQL generation.
@@ -76,10 +79,15 @@ type Dialect interface {
 
 	// UpdateSQL generates a parameterized UPDATE statement.
 	// SET params come first; WHERE params continue the numbering.
-	UpdateSQL(table string, set map[string]any, wheres []Cond) (string, []any)
+	// returning columns are appended as a RETURNING clause where supported.
+	UpdateSQL(table string, set map[string]any, wheres []Cond, returning []string) (string, []any)
 
 	// DeleteSQL generates a parameterized DELETE statement.
-	DeleteSQL(table string, wheres []Cond) (string, []any)
+	// returning columns are appended as a RETURNING clause where supported.
+	DeleteSQL(table string, wheres []Cond, returning []string) (string, []any)
+
+	// SupportsReturning reports whether the dialect supports RETURNING clauses.
+	SupportsReturning() bool
 
 	// --- Migration Tracking Methods ---
 

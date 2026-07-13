@@ -155,6 +155,59 @@ func parseWhereRaw(raw string, args []any) (dialect.Cond, error) {
 	return dialect.Cond{Kind: dialect.CondRaw, Raw: raw, Values: args}, nil
 }
 
+// scanRowMaps drains rows into maps keyed by column name.
+// []byte column values are converted to string.
+func scanRowMaps(rows *sql.Rows) ([]map[string]any, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]any
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		row := make(map[string]any, len(cols))
+		for i, col := range cols {
+			if b, ok := vals[i].([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = vals[i]
+			}
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+// execReturning runs a RETURNING statement via the execer and scans the
+// returned rows into maps.
+func execReturning(execer Execer, sqlStr string, args []any) ([]map[string]any, error) {
+	rows, err := execer.Query(sqlStr, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRowMaps(rows)
+}
+
+// checkReturning validates an ExecReturning call against the dialect.
+func checkReturning(d dialect.Dialect, cols []string) error {
+	if len(cols) == 0 {
+		return fmt.Errorf("ExecReturning requires at least one column")
+	}
+	if !d.SupportsReturning() {
+		return fmt.Errorf("RETURNING is not supported by %s; use Exec() and LastInsertId()", d.Name())
+	}
+	return nil
+}
+
 // SelectBuilder builds SELECT queries.
 type SelectBuilder struct {
 	table   string
@@ -329,36 +382,14 @@ func (s *SelectBuilder) First() (map[string]any, error) {
 	}
 	defer rows.Close()
 
-	cols, err := rows.Columns()
+	maps, err := scanRowMaps(rows)
 	if err != nil {
 		return nil, err
 	}
-
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+	if len(maps) == 0 {
 		return nil, sql.ErrNoRows
 	}
-
-	vals := make([]any, len(cols))
-	ptrs := make([]any, len(cols))
-	for i := range vals {
-		ptrs[i] = &vals[i]
-	}
-	if err := rows.Scan(ptrs...); err != nil {
-		return nil, err
-	}
-
-	row := make(map[string]any, len(cols))
-	for i, col := range cols {
-		if b, ok := vals[i].([]byte); ok {
-			row[col] = string(b)
-		} else {
-			row[col] = vals[i]
-		}
-	}
-	return row, rows.Err()
+	return maps[0], nil
 }
 
 // UpdateBuilder builds UPDATE queries.
@@ -457,22 +488,43 @@ func (u *UpdateBuilder) ToSQL() (string, []any) {
 	if u.dialect == nil {
 		return "", nil
 	}
-	return u.dialect.UpdateSQL(u.table, u.set, u.where)
+	return u.dialect.UpdateSQL(u.table, u.set, u.where, nil)
+}
+
+// check validates the builder state before execution.
+func (u *UpdateBuilder) check() error {
+	if u.err != nil {
+		return u.err
+	}
+	if u.execer == nil {
+		return fmt.Errorf("no database connection")
+	}
+	if len(u.set) == 0 {
+		return fmt.Errorf("no values to update: call Set() before Exec()")
+	}
+	return nil
 }
 
 // Exec executes the UPDATE query and returns the result.
 func (u *UpdateBuilder) Exec() (sql.Result, error) {
-	if u.err != nil {
-		return nil, u.err
-	}
-	if u.execer == nil {
-		return nil, fmt.Errorf("no database connection")
-	}
-	if len(u.set) == 0 {
-		return nil, fmt.Errorf("no values to update: call Set() before Exec()")
+	if err := u.check(); err != nil {
+		return nil, err
 	}
 	sqlStr, args := u.ToSQL()
 	return u.execer.Exec(sqlStr, args...)
+}
+
+// ExecReturning executes the UPDATE with a RETURNING clause and returns the
+// affected rows. PostgreSQL only — on MySQL use Exec().
+func (u *UpdateBuilder) ExecReturning(columns ...string) ([]map[string]any, error) {
+	if err := u.check(); err != nil {
+		return nil, err
+	}
+	if err := checkReturning(u.dialect, columns); err != nil {
+		return nil, err
+	}
+	sqlStr, args := u.dialect.UpdateSQL(u.table, u.set, u.where, columns)
+	return execReturning(u.execer, sqlStr, args)
 }
 
 // DeleteBuilder builds DELETE queries.
@@ -564,17 +616,38 @@ func (d *DeleteBuilder) ToSQL() (string, []any) {
 	if d.dialect == nil {
 		return "", nil
 	}
-	return d.dialect.DeleteSQL(d.table, d.where)
+	return d.dialect.DeleteSQL(d.table, d.where, nil)
+}
+
+// check validates the builder state before execution.
+func (d *DeleteBuilder) check() error {
+	if d.err != nil {
+		return d.err
+	}
+	if d.execer == nil {
+		return fmt.Errorf("no database connection")
+	}
+	return nil
 }
 
 // Exec executes the DELETE query and returns the result.
 func (d *DeleteBuilder) Exec() (sql.Result, error) {
-	if d.err != nil {
-		return nil, d.err
-	}
-	if d.execer == nil {
-		return nil, fmt.Errorf("no database connection")
+	if err := d.check(); err != nil {
+		return nil, err
 	}
 	sqlStr, args := d.ToSQL()
 	return d.execer.Exec(sqlStr, args...)
+}
+
+// ExecReturning executes the DELETE with a RETURNING clause and returns the
+// deleted rows. PostgreSQL only — on MySQL use Exec().
+func (d *DeleteBuilder) ExecReturning(columns ...string) ([]map[string]any, error) {
+	if err := d.check(); err != nil {
+		return nil, err
+	}
+	if err := checkReturning(d.dialect, columns); err != nil {
+		return nil, err
+	}
+	sqlStr, args := d.dialect.DeleteSQL(d.table, d.where, columns)
+	return execReturning(d.execer, sqlStr, args)
 }

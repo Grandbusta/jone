@@ -316,6 +316,12 @@ result, err := jonecfg.DB.Insert(map[string]any{
     "name":  "John",
 }).OnConflict().Ignore().Into("users").Exec()
 
+// Get generated values back (PostgreSQL RETURNING)
+rows, err := jonecfg.DB.Insert(map[string]any{
+    "name": "John",
+}).Into("users").ExecReturning("id")
+id := rows[0]["id"]
+
 // SELECT with parameterized WHERE
 rows, err := jonecfg.DB.Select("id", "name").From("users").
     Where("age", ">", 18).              // (column, operator, value)
