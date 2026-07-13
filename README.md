@@ -289,32 +289,55 @@ import jonecfg "myapp/jone"
 result, err := jonecfg.DB.Insert(map[string]any{
     "name":  "John",
     "email": "john@example.com",
-}).Into("users")
+}).Into("users").Exec()
 
 // Multi-row insert
 result, err := jonecfg.DB.Insert([]map[string]any{
     {"name": "John", "email": "john@example.com"},
     {"name": "Jane", "email": "jane@example.com"},
-}).Into("users")
+}).Into("users").Exec()
 
 // Struct insert (uses db tags or snake_case field names)
 type User struct {
     Name  string `db:"name"`
     Email string `db:"email"`
 }
-result, err := jonecfg.DB.Insert(User{Name: "John", Email: "john@example.com"}).Into("users")
+result, err := jonecfg.DB.Insert(User{Name: "John", Email: "john@example.com"}).Into("users").Exec()
 
 // Raw SQL expressions
 result, err := jonecfg.DB.Insert(map[string]any{
     "name":       "John",
     "created_at": jone.Fn.Now(), // CURRENT_TIMESTAMP
-}).Into("users")
+}).Into("users").Exec()
 
 // Skip conflicting rows (ON CONFLICT DO NOTHING)
 result, err := jonecfg.DB.Insert(map[string]any{
     "email": "john@example.com",
     "name":  "John",
-}).OnConflict().Ignore().Into("users")
+}).OnConflict().Ignore().Into("users").Exec()
+
+// SELECT with parameterized WHERE
+rows, err := jonecfg.DB.Select("id", "name").From("users").
+    Where("age", ">", 18).              // (column, operator, value)
+    Where("active", true).              // (column, value) → implied =
+    WhereIn("status", []string{"active", "pending"}).
+    WhereNull("deleted_at").
+    OrderBy("created_at", "desc").
+    Limit(10).
+    Exec()
+
+// First row as a map (sql.ErrNoRows if none)
+row, err := jonecfg.DB.Select("*").From("users").Where("id", 1).First()
+
+// UPDATE — SET and WHERE are both parameterized
+result, err := jonecfg.DB.Update("users").
+    Set("name", "Alice").
+    Set("updated_at", jone.Fn.Now()).
+    Where("id", 1).
+    Exec()
+
+// DELETE
+result, err := jonecfg.DB.Delete("users").Where("active", false).Exec()
 ```
 
 ## 📝 Migration Example

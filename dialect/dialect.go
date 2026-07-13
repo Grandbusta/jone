@@ -71,14 +71,15 @@ type Dialect interface {
 	// InsertManySQL generates a parameterized INSERT statement for multiple rows.
 	InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any)
 
-	// SelectSQL generates a SELECT statement. WHERE clauses are raw strings (no args).
-	SelectSQL(table string, columns []string, wheres []string, orderBys []string, limit *int, offset *int) string
+	// SelectSQL generates a parameterized SELECT statement.
+	SelectSQL(table string, columns []string, wheres []Cond, orderBys []OrderClause, limit *int, offset *int) (string, []any)
 
 	// UpdateSQL generates a parameterized UPDATE statement.
-	UpdateSQL(table string, set map[string]any, wheres []string) (string, []any)
+	// SET params come first; WHERE params continue the numbering.
+	UpdateSQL(table string, set map[string]any, wheres []Cond) (string, []any)
 
-	// DeleteSQL generates a DELETE statement. WHERE clauses are raw strings (no args).
-	DeleteSQL(table string, wheres []string) string
+	// DeleteSQL generates a parameterized DELETE statement.
+	DeleteSQL(table string, wheres []Cond) (string, []any)
 
 	// --- Migration Tracking Methods ---
 
