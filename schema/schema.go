@@ -217,6 +217,14 @@ func (s *Schema) Delete(table string) *query.DeleteBuilder {
 	return query.NewDeleteBuilder(table, s.dialect, s.execer, err)
 }
 
+// Truncate starts building a TRUNCATE TABLE statement for the given table.
+// TRUNCATE removes all rows; on MySQL it also resets AUTO_INCREMENT and
+// cannot run inside a transaction (it commits implicitly).
+func (s *Schema) Truncate(table string) *query.TruncateBuilder {
+	err := s.ensureOpen()
+	return query.NewTruncateBuilder(table, s.dialect, s.execer, err)
+}
+
 // Transaction runs fn inside a database transaction.
 // Automatically commits on nil return, rolls back on error.
 func (s *Schema) Transaction(fn func(tx *Schema) error) error {

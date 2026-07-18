@@ -226,6 +226,39 @@ func TestDeleteExec_PassesArgs(t *testing.T) {
 	}
 }
 
+func TestTruncate_BothDialects(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+	my := &dialect.MySQLDialect{}
+
+	sql, args := NewTruncateBuilder("users", pg, nil, nil).ToSQL()
+	if sql != `TRUNCATE TABLE "users";` || len(args) != 0 {
+		t.Errorf("SQL = %q, args = %v", sql, args)
+	}
+
+	sql, _ = NewTruncateBuilder("users", my, nil, nil).ToSQL()
+	if sql != "TRUNCATE TABLE `users`;" {
+		t.Errorf("SQL = %q", sql)
+	}
+}
+
+func TestTruncate_ExecAndErrors(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+	rec := &recordingExecer{}
+
+	_, err := NewTruncateBuilder("users", pg, rec, nil).Exec()
+	if err != nil {
+		t.Fatalf("Exec() error: %v", err)
+	}
+	if rec.query != `TRUNCATE TABLE "users";` {
+		t.Errorf("query = %q", rec.query)
+	}
+
+	_, err = NewTruncateBuilder("users", pg, nil, nil).Exec()
+	if err == nil || !strings.Contains(err.Error(), "no database connection") {
+		t.Errorf("expected no-connection error, got %v", err)
+	}
+}
+
 // --- First() tests using a minimal in-memory driver ---
 
 // stubDriver serves fixed columns/rows and records the last query.
@@ -1008,6 +1041,141 @@ func TestWhereExists_SubqueryCarriesGroupBy(t *testing.T) {
 	want := `SELECT * FROM "users" WHERE EXISTS (SELECT "user_id" FROM "orders" WHERE orders.user_id = users.id GROUP BY "user_id");`
 	if sql != want {
 		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+// --- Join tests ---
+
+func TestJoin_InnerWithAliasAndQualifiedColumns(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, args := NewSelectBuilder([]string{"users.name", "o.total"}, pg, nil, nil).
+		From("users").
+		Join("orders as o", "users.id", "o.user_id").
+		Where("o.total", ">", 100).
+		ToSQL()
+	want := `SELECT "users"."name", "o"."total" FROM "users" INNER JOIN "orders" AS "o" ON "users"."id" = "o"."user_id" WHERE "o"."total" > $1;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 1 || args[0] != 100 {
+		t.Errorf("args = %v, want [100]", args)
+	}
+}
+
+func TestLeftJoin_OperatorForm_MySQL(t *testing.T) {
+	my := &dialect.MySQLDialect{}
+
+	sql, _ := NewSelectBuilder([]string{"users.*"}, my, nil, nil).
+		From("users").
+		LeftJoin("profiles", "users.id", "=", "profiles.user_id").
+		ToSQL()
+	want := "SELECT `users`.* FROM `users` LEFT JOIN `profiles` ON `users`.`id` = `profiles`.`user_id`;"
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestRightJoin_And_SelfJoinAliases(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder([]string{"e.name", "m.name"}, pg, nil, nil).
+		From("employees as e").
+		RightJoin("employees as m", "e.manager_id", "m.id").
+		ToSQL()
+	want := `SELECT "e"."name", "m"."name" FROM "employees" AS "e" RIGHT JOIN "employees" AS "m" ON "e"."manager_id" = "m"."id";`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestJoinRaw_ArgsNumberBeforeWhere(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, args := NewSelectBuilder(nil, pg, nil, nil).
+		From("users").
+		JoinRaw("LEFT JOIN orders o ON o.user_id = users.id AND o.total > ?", 100).
+		Where("users.active", true).
+		ToSQL()
+	want := `SELECT * FROM "users" LEFT JOIN orders o ON o.user_id = users.id AND o.total > $1 WHERE "users"."active" = $2;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 2 || args[0] != 100 || args[1] != true {
+		t.Errorf("args = %v, want [100 true]", args)
+	}
+}
+
+func TestJoin_OnDerivedTable(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sub := Select("user_id").From("orders").GroupBy("user_id").As("t")
+	sql, _ := NewSelectBuilder(nil, pg, nil, nil).
+		From(sub).
+		Join("users", "t.user_id", "users.id").
+		ToSQL()
+	want := `SELECT * FROM (SELECT "user_id" FROM "orders" GROUP BY "user_id") AS "t" INNER JOIN "users" ON "t"."user_id" = "users"."id";`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestOuterJoinVariants(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder(nil, pg, nil, nil).
+		From("users").
+		LeftOuterJoin("orders", "users.id", "orders.user_id").
+		RightOuterJoin("profiles", "users.id", "profiles.user_id").
+		FullOuterJoin("audits", "users.id", "!=", "audits.user_id").
+		ToSQL()
+	want := `SELECT * FROM "users" LEFT OUTER JOIN "orders" ON "users"."id" = "orders"."user_id" RIGHT OUTER JOIN "profiles" ON "users"."id" = "profiles"."user_id" FULL OUTER JOIN "audits" ON "users"."id" != "audits"."user_id";`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestCrossJoin(t *testing.T) {
+	my := &dialect.MySQLDialect{}
+
+	sql, args := NewSelectBuilder(nil, my, nil, nil).
+		From("sizes").
+		CrossJoin("colors as c").
+		ToSQL()
+	want := "SELECT * FROM `sizes` CROSS JOIN `colors` AS `c`;"
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 0 {
+		t.Errorf("args = %v, want none", args)
+	}
+}
+
+func TestFullOuterJoin_MySQLUnsupported(t *testing.T) {
+	my := &dialect.MySQLDialect{}
+
+	_, err := NewSelectBuilder(nil, my, &recordingExecer{}, nil).
+		From("users").
+		FullOuterJoin("orders", "users.id", "orders.user_id").
+		Exec()
+	if err == nil || !strings.Contains(err.Error(), "FULL OUTER JOIN is not supported") {
+		t.Errorf("expected unsupported error, got %v", err)
+	}
+}
+
+func TestJoin_Errors(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	_, err := NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("users").Join("orders", "users.id").Exec()
+	if err == nil || !strings.Contains(err.Error(), "Join expects") {
+		t.Errorf("expected ON arity error, got %v", err)
+	}
+
+	_, err = NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("users").JoinRaw("JOIN x ON a = ? AND b = ?", 1).Exec()
+	if err == nil || !strings.Contains(err.Error(), "placeholders") {
+		t.Errorf("expected placeholder count error, got %v", err)
 	}
 }
 

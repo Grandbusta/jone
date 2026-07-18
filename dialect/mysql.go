@@ -29,8 +29,12 @@ func (d *MySQLDialect) FormatDSN(conn config.Connection) string {
 }
 
 // QuoteIdentifier quotes an identifier with backticks for MySQL.
+// QuoteIdentifier quotes an identifier, treating dots as qualification:
+// "users.id" → `users`.`id`. A * segment stays unquoted ("users.*").
 func (d *MySQLDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf("`%s`", name)
+	return quoteQualified(name, func(part string) string {
+		return "`" + part + "`"
+	})
 }
 
 // CreateTableSQL generates a CREATE TABLE statement for MySQL.
@@ -532,6 +536,11 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 	return sql + ";", args
 }
 
+// TruncateSQL generates a TRUNCATE TABLE statement for MySQL.
+func (d *MySQLDialect) TruncateSQL(table string) string {
+	return fmt.Sprintf("TRUNCATE TABLE %s;", d.QuoteIdentifier(table))
+}
+
 // DeleteSQL generates a parameterized DELETE statement for MySQL.
 // The returning param is ignored — MySQL has no RETURNING support.
 func (d *MySQLDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
@@ -550,6 +559,11 @@ func (d *MySQLDialect) RawSQL(raw string, args []any) (string, []any) {
 
 // SupportsDistinctOn reports that MySQL does not support DISTINCT ON.
 func (d *MySQLDialect) SupportsDistinctOn() bool {
+	return false
+}
+
+// SupportsFullOuterJoin reports that MySQL does not support FULL OUTER JOIN.
+func (d *MySQLDialect) SupportsFullOuterJoin() bool {
 	return false
 }
 

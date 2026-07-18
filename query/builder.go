@@ -419,6 +419,7 @@ type SelectBuilder struct {
 	columns    []string
 	distinct   bool
 	distinctOn []string
+	joins      []dialect.JoinClause
 	where      []dialect.Cond
 	groupBy    []dialect.GroupClause
 	having     []dialect.Cond
@@ -438,6 +439,7 @@ func (s *SelectBuilder) subSelect() dialect.SubSelect {
 		Columns:    s.columns,
 		Distinct:   s.distinct,
 		DistinctOn: s.distinctOn,
+		Joins:      s.joins,
 		Wheres:     s.where,
 		GroupBys:   s.groupBy,
 		Havings:    s.having,
@@ -487,6 +489,75 @@ func (s *SelectBuilder) From(table any) *SelectBuilder {
 	default:
 		s.setErr(fmt.Errorf("From expects a table name string or a *SelectBuilder subquery, got %T", table))
 	}
+	return s
+}
+
+// join appends a structured join clause, accepting the two ON forms.
+func (s *SelectBuilder) join(kind, table string, on []string) *SelectBuilder {
+	j := dialect.JoinClause{Kind: kind, Table: table, Op: "="}
+	switch len(on) {
+	case 2:
+		j.Left, j.Right = on[0], on[1]
+	case 3:
+		j.Left, j.Op, j.Right = on[0], on[1], on[2]
+	default:
+		s.setErr(fmt.Errorf("Join expects (table, left, right) or (table, left, op, right), got %d ON args", len(on)))
+		return s
+	}
+	s.joins = append(s.joins, j)
+	return s
+}
+
+// Join adds an INNER JOIN: Join(table, left, right) for an equality ON, or
+// Join(table, left, op, right) for other operators. Columns are qualified
+// identifiers ("users.id"); the table may use "orders as o" aliasing.
+func (s *SelectBuilder) Join(table string, on ...string) *SelectBuilder {
+	return s.join("INNER JOIN", table, on)
+}
+
+// LeftJoin is Join with a LEFT JOIN.
+func (s *SelectBuilder) LeftJoin(table string, on ...string) *SelectBuilder {
+	return s.join("LEFT JOIN", table, on)
+}
+
+// RightJoin is Join with a RIGHT JOIN.
+func (s *SelectBuilder) RightJoin(table string, on ...string) *SelectBuilder {
+	return s.join("RIGHT JOIN", table, on)
+}
+
+// LeftOuterJoin is Join with a LEFT OUTER JOIN (equivalent to LeftJoin).
+func (s *SelectBuilder) LeftOuterJoin(table string, on ...string) *SelectBuilder {
+	return s.join("LEFT OUTER JOIN", table, on)
+}
+
+// RightOuterJoin is Join with a RIGHT OUTER JOIN (equivalent to RightJoin).
+func (s *SelectBuilder) RightOuterJoin(table string, on ...string) *SelectBuilder {
+	return s.join("RIGHT OUTER JOIN", table, on)
+}
+
+// FullOuterJoin is Join with a FULL OUTER JOIN. PostgreSQL only.
+func (s *SelectBuilder) FullOuterJoin(table string, on ...string) *SelectBuilder {
+	if s.dialect != nil && !s.dialect.SupportsFullOuterJoin() {
+		s.setErr(fmt.Errorf("FULL OUTER JOIN is not supported by %s", s.dialect.Name()))
+		return s
+	}
+	return s.join("FULL OUTER JOIN", table, on)
+}
+
+// CrossJoin adds a CROSS JOIN (cartesian product) — no ON condition.
+func (s *SelectBuilder) CrossJoin(table string) *SelectBuilder {
+	s.joins = append(s.joins, dialect.JoinClause{Kind: "CROSS JOIN", Table: table})
+	return s
+}
+
+// JoinRaw adds a raw join fragment used verbatim, with ? placeholders bound
+// to args, e.g. JoinRaw("LEFT JOIN orders o ON o.user_id = users.id AND o.total > ?", 100).
+func (s *SelectBuilder) JoinRaw(raw string, args ...any) *SelectBuilder {
+	if n := strings.Count(raw, "?"); n != len(args) {
+		s.setErr(fmt.Errorf("JoinRaw has %d placeholders but %d args", n, len(args)))
+		return s
+	}
+	s.joins = append(s.joins, dialect.JoinClause{Raw: raw, Values: args})
 	return s
 }
 
@@ -1379,6 +1450,39 @@ func (u *UpdateBuilder) ExecReturning(columns ...string) ([]map[string]any, erro
 	}
 	sqlStr, args := u.dialect.UpdateSQL(u.table, u.set, u.where, columns)
 	return execReturning(u.execer, sqlStr, args)
+}
+
+// TruncateBuilder builds TRUNCATE TABLE statements.
+type TruncateBuilder struct {
+	table   string
+	dialect dialect.Dialect
+	execer  Execer
+	err     error
+}
+
+// NewTruncateBuilder creates a dialect-aware TruncateBuilder (used by Schema).
+func NewTruncateBuilder(table string, d dialect.Dialect, execer Execer, err error) *TruncateBuilder {
+	return &TruncateBuilder{table: table, dialect: d, execer: execer, err: err}
+}
+
+// ToSQL generates the TRUNCATE SQL.
+func (t *TruncateBuilder) ToSQL() (string, []any) {
+	if t.dialect == nil {
+		return "", nil
+	}
+	return t.dialect.TruncateSQL(t.table), nil
+}
+
+// Exec executes the TRUNCATE and returns the result.
+func (t *TruncateBuilder) Exec() (sql.Result, error) {
+	if t.err != nil {
+		return nil, t.err
+	}
+	if t.execer == nil {
+		return nil, fmt.Errorf("no database connection")
+	}
+	sqlStr, _ := t.ToSQL()
+	return t.execer.Exec(sqlStr)
 }
 
 // DeleteBuilder builds DELETE queries.

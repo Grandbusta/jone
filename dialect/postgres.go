@@ -32,8 +32,12 @@ func (d *PostgresDialect) FormatDSN(conn config.Connection) string {
 }
 
 // QuoteIdentifier quotes an identifier with double quotes for PostgreSQL.
+// QuoteIdentifier quotes an identifier, treating dots as qualification:
+// "users.id" → "users"."id". A * segment stays unquoted ("users.*").
 func (d *PostgresDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf(`"%s"`, name)
+	return quoteQualified(name, func(part string) string {
+		return `"` + part + `"`
+	})
 }
 
 // CreateTableSQL generates a CREATE TABLE statement for PostgreSQL.
@@ -547,6 +551,11 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 	return sql + ";", args
 }
 
+// TruncateSQL generates a TRUNCATE TABLE statement for PostgreSQL.
+func (d *PostgresDialect) TruncateSQL(table string) string {
+	return fmt.Sprintf("TRUNCATE TABLE %s;", d.QuoteIdentifier(table))
+}
+
 // DeleteSQL generates a parameterized DELETE statement for PostgreSQL.
 func (d *PostgresDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
@@ -565,6 +574,11 @@ func (d *PostgresDialect) RawSQL(raw string, args []any) (string, []any) {
 
 // SupportsDistinctOn reports that PostgreSQL supports DISTINCT ON.
 func (d *PostgresDialect) SupportsDistinctOn() bool {
+	return true
+}
+
+// SupportsFullOuterJoin reports that PostgreSQL supports FULL OUTER JOIN.
+func (d *PostgresDialect) SupportsFullOuterJoin() bool {
 	return true
 }
 

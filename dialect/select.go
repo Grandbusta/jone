@@ -15,6 +15,7 @@ type SubSelect struct {
 	Columns    []string
 	Distinct   bool     // SELECT DISTINCT
 	DistinctOn []string // SELECT DISTINCT ON (cols) — PostgreSQL only; wins over Distinct
+	Joins      []JoinClause
 	Wheres     []Cond
 	GroupBys   []GroupClause
 	Havings    []Cond
@@ -71,7 +72,7 @@ func selectSQL(sub SubSelect, quote func(string) string, placeholder func(int) s
 		distinct = "DISTINCT "
 	}
 
-	from := quote(sub.Table)
+	from := quoteTable(sub.Table, quote)
 	var args []any
 	if sub.FromSub != nil {
 		body, fromArgs := selectSQL(*sub.FromSub, quote, placeholder, likeOp, startIdx)
@@ -81,6 +82,13 @@ func selectSQL(sub SubSelect, quote func(string) string, placeholder func(int) s
 	}
 
 	sql := fmt.Sprintf("SELECT %s%s FROM %s", distinct, cols, from)
+
+	if len(sub.Joins) > 0 {
+		joinSQL, joinArgs := compileJoins(sub.Joins, quote, placeholder, startIdx)
+		sql += " " + joinSQL
+		args = append(args, joinArgs...)
+		startIdx += len(joinArgs)
+	}
 
 	whereSQL, whereArgs := compileWheres(sub.Wheres, quote, placeholder, likeOp, startIdx)
 	if whereSQL != "" {

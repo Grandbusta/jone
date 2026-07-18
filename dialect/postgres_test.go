@@ -24,6 +24,9 @@ func TestPostgresDialect_QuoteIdentifier(t *testing.T) {
 		{"users", `"users"`},
 		{"user_id", `"user_id"`},
 		{"CamelCase", `"CamelCase"`},
+		{"users.id", `"users"."id"`},
+		{"users.*", `"users".*`},
+		{"*", `*`},
 	}
 	for _, tt := range tests {
 		if got := d.QuoteIdentifier(tt.input); got != tt.want {

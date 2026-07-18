@@ -85,6 +85,9 @@ type Dialect interface {
 	// e.g. SELECT COUNT(*) / SUM(col) with the given WHERE conditions.
 	AggregateSQL(table, fn, column string, wheres []Cond) (string, []any)
 
+	// TruncateSQL generates a TRUNCATE TABLE statement.
+	TruncateSQL(table string) string
+
 	// UpdateSQL generates a parameterized UPDATE statement.
 	// SET params come first; WHERE params continue the numbering.
 	// returning columns are appended as a RETURNING clause where supported.
@@ -99,6 +102,9 @@ type Dialect interface {
 
 	// SupportsDistinctOn reports whether the dialect supports DISTINCT ON.
 	SupportsDistinctOn() bool
+
+	// SupportsFullOuterJoin reports whether the dialect supports FULL OUTER JOIN.
+	SupportsFullOuterJoin() bool
 
 	// --- Migration Tracking Methods ---
 

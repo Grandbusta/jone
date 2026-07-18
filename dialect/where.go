@@ -36,11 +36,11 @@ const (
 // Cond represents a single WHERE condition built by the query builders.
 type Cond struct {
 	Kind   CondKind
-	Or     bool   // join with OR instead of AND (ignored on the first condition)
-	Not    bool   // CondIn → NOT IN, CondNull → IS NOT NULL, CondCmp/CondGroup → NOT ...
-	Column string // quoted with QuoteIdentifier at compile time
-	Op     string // comparison operator, used verbatim for CondCmp
-	Value  any    // CondCmp bound value
+	Or     bool       // join with OR instead of AND (ignored on the first condition)
+	Not    bool       // CondIn → NOT IN, CondNull → IS NOT NULL, CondCmp/CondGroup → NOT ...
+	Column string     // quoted with QuoteIdentifier at compile time
+	Op     string     // comparison operator, used verbatim for CondCmp
+	Value  any        // CondCmp bound value
 	Values []any      // CondIn values / CondRaw args / CondBetween [low, high]
 	Raw    string     // CondRaw or raw-form CondExists SQL containing ? placeholders
 	Group  []Cond     // CondGroup nested conditions, compiled inside parentheses
@@ -72,20 +72,9 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 	}
 
 	// renderRaw rewrites each ? in a raw fragment to the dialect placeholder,
-	// binding values in order. Every ? is treated as a placeholder, including
-	// inside string literals.
+	// binding values in order.
 	renderRaw := func(raw string, values []any) string {
-		var sb strings.Builder
-		valIdx := 0
-		for _, r := range raw {
-			if r == '?' && valIdx < len(values) {
-				sb.WriteString(nextPlaceholder(values[valIdx]))
-				valIdx++
-			} else {
-				sb.WriteRune(r)
-			}
-		}
-		return sb.String()
+		return rebindRaw(raw, values, nextPlaceholder)
 	}
 
 	// renderCond returns the SQL fragment for one condition, or "" if it

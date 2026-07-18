@@ -341,6 +341,13 @@ row, err := jonecfg.DB.Select("*").From("users").Where("id", 1).First()
 // All rows as []map[string]any (empty when none match)
 users, err := jonecfg.DB.Select("*").From("users").Where("active", true).All()
 
+// Joins — qualified columns are quoted ("users.id" → "users"."id"),
+// tables support "as" aliasing
+rows, err := jonecfg.DB.Select("users.name", "o.total").From("users").
+    Join("orders as o", "users.id", "o.user_id").
+    Where("o.total", ">", 100).
+    Exec()
+
 // Derived tables — name a subquery with As() and select from it
 sub := jone.Select("user_id").From("orders").GroupBy("user_id").As("t")
 rows, err := jonecfg.DB.Select("*").From(sub).Exec()
@@ -359,6 +366,9 @@ result, err = jonecfg.DB.Update("books", "title", "Slaughterhouse Five").Where("
 
 // DELETE
 result, err := jonecfg.DB.Delete("users").Where("active", false).Exec()
+
+// TRUNCATE — remove all rows
+result, err = jonecfg.DB.Truncate("sessions").Exec()
 
 // Raw SQL — ? placeholders are rebound per dialect ($n on PostgreSQL)
 rows, err := jonecfg.DB.RawQuery("SELECT * FROM users WHERE age > ?", 21).All()
