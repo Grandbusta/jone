@@ -19,24 +19,41 @@ const (
 	CondRaw
 	// CondGroup is a parenthesized sub-group of conditions.
 	CondGroup
+	// CondBetween is a range check: Column BETWEEN Values[0] AND Values[1].
+	// Not flips it to NOT BETWEEN.
+	CondBetween
+	// CondExists is an EXISTS (subquery) check: Sub holds a builder-form
+	// subquery, or Raw/Values hold a raw subquery with ? placeholders.
+	// Not flips it to NOT EXISTS.
+	CondExists
+	// CondLike is a pattern match: Column LIKE Value. Insensitive selects the
+	// dialect's case-insensitive form (ILIKE on PostgreSQL, plain LIKE on
+	// MySQL); the sensitive form is LIKE on PostgreSQL, LIKE BINARY on MySQL.
+	// Not flips it to NOT ... .
+	CondLike
 )
 
 // Cond represents a single WHERE condition built by the query builders.
 type Cond struct {
 	Kind   CondKind
 	Or     bool   // join with OR instead of AND (ignored on the first condition)
-	Not    bool   // CondIn → NOT IN, CondNull → IS NOT NULL
+	Not    bool   // CondIn → NOT IN, CondNull → IS NOT NULL, CondCmp/CondGroup → NOT ...
 	Column string // quoted with QuoteIdentifier at compile time
 	Op     string // comparison operator, used verbatim for CondCmp
 	Value  any    // CondCmp bound value
-	Values []any  // CondIn values / CondRaw args
-	Raw    string // CondRaw SQL containing ? placeholders
-	Group  []Cond // CondGroup nested conditions, compiled inside parentheses
+	Values []any      // CondIn values / CondRaw args / CondBetween [low, high]
+	Raw    string     // CondRaw or raw-form CondExists SQL containing ? placeholders
+	Group  []Cond     // CondGroup nested conditions, compiled inside parentheses
+	Sub    *SubSelect // builder-form CondExists subquery
+
+	// Insensitive selects the dialect's case-insensitive operator for CondLike.
+	Insensitive bool
 }
 
 // compileWheres renders the WHERE clause body (without the "WHERE " prefix)
 // and its bound args. quote quotes identifiers; placeholder(n) returns the
 // 1-based placeholder for param n ("$3" for postgres, "?" for mysql);
+// likeOp returns the dialect's LIKE operator for the given case sensitivity;
 // startIdx is the count of params already emitted by the caller (e.g. UPDATE
 // SET args), so placeholder numbering continues from there.
 //
@@ -44,7 +61,7 @@ type Cond struct {
 // flag. Groups compile inside parentheses; empty groups vanish (an empty
 // result string means no condition survived, and the caller should omit the
 // WHERE clause entirely).
-func compileWheres(conds []Cond, quote func(string) string, placeholder func(int) string, startIdx int) (string, []any) {
+func compileWheres(conds []Cond, quote func(string) string, placeholder func(int) string, likeOp func(insensitive bool) string, startIdx int) (string, []any) {
 	var args []any
 	paramIdx := startIdx
 
@@ -52,6 +69,23 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 		paramIdx++
 		args = append(args, v)
 		return placeholder(paramIdx)
+	}
+
+	// renderRaw rewrites each ? in a raw fragment to the dialect placeholder,
+	// binding values in order. Every ? is treated as a placeholder, including
+	// inside string literals.
+	renderRaw := func(raw string, values []any) string {
+		var sb strings.Builder
+		valIdx := 0
+		for _, r := range raw {
+			if r == '?' && valIdx < len(values) {
+				sb.WriteString(nextPlaceholder(values[valIdx]))
+				valIdx++
+			} else {
+				sb.WriteRune(r)
+			}
+		}
+		return sb.String()
 	}
 
 	// renderCond returns the SQL fragment for one condition, or "" if it
@@ -62,7 +96,11 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 	renderCond = func(c Cond) string {
 		switch c.Kind {
 		case CondCmp:
-			return fmt.Sprintf("%s %s %s", quote(c.Column), c.Op, nextPlaceholder(c.Value))
+			frag := fmt.Sprintf("%s %s %s", quote(c.Column), c.Op, nextPlaceholder(c.Value))
+			if c.Not {
+				return "NOT " + frag
+			}
+			return frag
 		case CondIn:
 			if len(c.Values) == 0 {
 				// Empty IN matches nothing; empty NOT IN matches everything.
@@ -86,23 +124,40 @@ func compileWheres(conds []Cond, quote func(string) string, placeholder func(int
 			}
 			return quote(c.Column) + " IS NULL"
 		case CondRaw:
-			// Rewrite each ? to the dialect placeholder, binding Values in order.
-			// Every ? is treated as a placeholder, including inside string literals.
-			var sb strings.Builder
-			valIdx := 0
-			for _, r := range c.Raw {
-				if r == '?' && valIdx < len(c.Values) {
-					sb.WriteString(nextPlaceholder(c.Values[valIdx]))
-					valIdx++
-				} else {
-					sb.WriteRune(r)
-				}
+			return renderRaw(c.Raw, c.Values)
+		case CondLike:
+			frag := fmt.Sprintf("%s %s %s", quote(c.Column), likeOp(c.Insensitive), nextPlaceholder(c.Value))
+			if c.Not {
+				return "NOT " + frag
 			}
-			return sb.String()
+			return frag
+		case CondBetween:
+			op := "BETWEEN"
+			if c.Not {
+				op = "NOT BETWEEN"
+			}
+			return fmt.Sprintf("%s %s %s AND %s", quote(c.Column), op, nextPlaceholder(c.Values[0]), nextPlaceholder(c.Values[1]))
+		case CondExists:
+			var body string
+			if c.Sub != nil {
+				var subArgs []any
+				body, subArgs = selectSQL(*c.Sub, quote, placeholder, likeOp, paramIdx)
+				paramIdx += len(subArgs)
+				args = append(args, subArgs...)
+			} else {
+				body = renderRaw(c.Raw, c.Values)
+			}
+			if c.Not {
+				return "NOT EXISTS (" + body + ")"
+			}
+			return "EXISTS (" + body + ")"
 		case CondGroup:
 			body := render(c.Group)
 			if body == "" {
 				return ""
+			}
+			if c.Not {
+				return "NOT (" + body + ")"
 			}
 			return "(" + body + ")"
 		}

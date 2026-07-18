@@ -338,15 +338,31 @@ rows, err := jonecfg.DB.Select("id", "name").From("users").
 // First row as a map (sql.ErrNoRows if none)
 row, err := jonecfg.DB.Select("*").From("users").Where("id", 1).First()
 
-// UPDATE — SET and WHERE are both parameterized
-result, err := jonecfg.DB.Update("users").
-    Set("name", "Alice").
-    Set("updated_at", jone.Fn.Now()).
-    Where("id", 1).
-    Exec()
+// All rows as []map[string]any (empty when none match)
+users, err := jonecfg.DB.Select("*").From("users").Where("active", true).All()
+
+// Derived tables — name a subquery with As() and select from it
+sub := jone.Select("user_id").From("orders").GroupBy("user_id").As("t")
+rows, err := jonecfg.DB.Select("*").From(sub).Exec()
+
+// UPDATE — the data is passed directly to Update; SET and WHERE are both
+// parameterized
+result, err := jonecfg.DB.Update("users", map[string]any{
+    "name":       "Alice",
+    "updated_at": jone.Fn.Now(),
+}).Where("id", 1).Exec()
+
+// Structs work too, using `db` tags with snake_case fallback (same as Insert),
+// and there's a single-pair shorthand
+result, err = jonecfg.DB.Update("users", user).Where("id", 1).Exec()
+result, err = jonecfg.DB.Update("books", "title", "Slaughterhouse Five").Where("id", 42).Exec()
 
 // DELETE
 result, err := jonecfg.DB.Delete("users").Where("active", false).Exec()
+
+// Raw SQL — ? placeholders are rebound per dialect ($n on PostgreSQL)
+rows, err := jonecfg.DB.RawQuery("SELECT * FROM users WHERE age > ?", 21).All()
+result, err = jonecfg.DB.RawQuery("UPDATE users SET status = ? WHERE id = ?", "legacy", 7).Exec()
 ```
 
 ## 📝 Migration Example

@@ -177,6 +177,18 @@ func (s *Schema) Raw(sqlStmt string, args ...any) {
 	}
 }
 
+// RawQuery starts a raw SQL statement with ? placeholders bound to args,
+// rebound to the dialect's placeholder style. Finish with All() for rows as
+// maps, Exec() for statements without results, or ToSQL() to inspect:
+//
+//	rows, err := db.RawQuery("SELECT * FROM users WHERE age > ?", 21).All()
+//
+// For raw SQL inside migrations, use Raw(), which executes immediately.
+func (s *Schema) RawQuery(sqlStr string, args ...any) *query.RawBuilder {
+	err := s.ensureOpen()
+	return query.NewRawBuilder(sqlStr, args, s.dialect, s.execer, err)
+}
+
 // Insert starts building an INSERT query with the given data.
 // Accepts map[string]any for a single row, or []map[string]any for multiple rows.
 func (s *Schema) Insert(data any) *query.InsertBuilder {
@@ -190,10 +202,13 @@ func (s *Schema) Select(columns ...string) *query.SelectBuilder {
 	return query.NewSelectBuilder(columns, s.dialect, s.execer, err)
 }
 
-// Update starts building an UPDATE query for the given table.
-func (s *Schema) Update(table string) *query.UpdateBuilder {
+// Update starts building an UPDATE query for the given table. The data to
+// set is passed directly: Update(table, map), Update(table, struct) using db
+// tags with snake_case fallback, or Update(table, column, value). The bare
+// Update(table) form is valid when only Increment/Decrement follow.
+func (s *Schema) Update(table string, args ...any) *query.UpdateBuilder {
 	err := s.ensureOpen()
-	return query.NewUpdateBuilder(table, s.dialect, s.execer, err)
+	return query.NewUpdateBuilder(table, args, s.dialect, s.execer, err)
 }
 
 // Delete starts building a DELETE query for the given table.

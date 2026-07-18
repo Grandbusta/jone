@@ -75,7 +75,15 @@ type Dialect interface {
 	InsertManySQL(table string, data []map[string]any, opts InsertOptions) (string, []any)
 
 	// SelectSQL generates a parameterized SELECT statement.
-	SelectSQL(table string, columns []string, wheres []Cond, orderBys []OrderClause, limit *int, offset *int) (string, []any)
+	SelectSQL(sub SubSelect) (string, []any)
+
+	// RawSQL rebinds ? placeholders in a raw SQL string to the dialect's
+	// placeholder style, returning the SQL and its bound args.
+	RawSQL(raw string, args []any) (string, []any)
+
+	// AggregateSQL generates a parameterized single-value aggregate SELECT,
+	// e.g. SELECT COUNT(*) / SUM(col) with the given WHERE conditions.
+	AggregateSQL(table, fn, column string, wheres []Cond) (string, []any)
 
 	// UpdateSQL generates a parameterized UPDATE statement.
 	// SET params come first; WHERE params continue the numbering.
@@ -88,6 +96,9 @@ type Dialect interface {
 
 	// SupportsReturning reports whether the dialect supports RETURNING clauses.
 	SupportsReturning() bool
+
+	// SupportsDistinctOn reports whether the dialect supports DISTINCT ON.
+	SupportsDistinctOn() bool
 
 	// --- Migration Tracking Methods ---
 
