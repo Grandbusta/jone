@@ -29,8 +29,12 @@ func (d *MySQLDialect) FormatDSN(conn config.Connection) string {
 }
 
 // QuoteIdentifier quotes an identifier with backticks for MySQL.
+// QuoteIdentifier quotes an identifier, treating dots as qualification:
+// "users.id" → `users`.`id`. A * segment stays unquoted ("users.*").
 func (d *MySQLDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf("`%s`", name)
+	return quoteQualified(name, func(part string) string {
+		return "`" + part + "`"
+	})
 }
 
 // CreateTableSQL generates a CREATE TABLE statement for MySQL.
@@ -485,37 +489,25 @@ func mysqlPlaceholder(int) string {
 	return "?"
 }
 
+// mysqlLikeOp returns the MySQL LIKE operator. MySQL's default collation is
+// case-insensitive, so plain LIKE covers the insensitive form and LIKE BINARY
+// forces a case-sensitive match.
+func mysqlLikeOp(insensitive bool) string {
+	if insensitive {
+		return "LIKE"
+	}
+	return "LIKE BINARY"
+}
+
 // SelectSQL generates a parameterized SELECT statement for MySQL.
-func (d *MySQLDialect) SelectSQL(table string, columns []string, wheres []Cond, orderBys []OrderClause, limit *int, offset *int) (string, []any) {
-	cols := "*"
-	if len(columns) > 0 {
-		quoted := make([]string, len(columns))
-		for i, c := range columns {
-			if c == "*" {
-				quoted[i] = c
-			} else {
-				quoted[i] = d.QuoteIdentifier(c)
-			}
-		}
-		cols = strings.Join(quoted, ", ")
-	}
-
-	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
-
-	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
-	if whereSQL != "" {
-		sql += " WHERE " + whereSQL
-	}
-	if len(orderBys) > 0 {
-		sql += " ORDER BY " + compileOrderBys(orderBys, d.QuoteIdentifier)
-	}
-	if limit != nil {
-		sql += fmt.Sprintf(" LIMIT %d", *limit)
-	}
-	if offset != nil {
-		sql += fmt.Sprintf(" OFFSET %d", *offset)
-	}
+func (d *MySQLDialect) SelectSQL(sub SubSelect) (string, []any) {
+	sql, args := selectSQL(sub, d.QuoteIdentifier, mysqlPlaceholder, mysqlLikeOp, 0)
 	return sql + ";", args
+}
+
+// AggregateSQL generates a parameterized single-value aggregate SELECT for MySQL.
+func (d *MySQLDialect) AggregateSQL(table, fn, column string, wheres []Cond) (string, []any) {
+	return aggregateSQL(table, fn, column, wheres, d.QuoteIdentifier, mysqlPlaceholder, mysqlLikeOp)
 }
 
 // UpdateSQL generates a parameterized UPDATE statement for MySQL.
@@ -536,7 +528,7 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 
 	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
 
-	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, mysqlLikeOp, 0)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 		args = append(args, whereArgs...)
@@ -544,15 +536,35 @@ func (d *MySQLDialect) UpdateSQL(table string, set map[string]any, wheres []Cond
 	return sql + ";", args
 }
 
+// TruncateSQL generates a TRUNCATE TABLE statement for MySQL.
+func (d *MySQLDialect) TruncateSQL(table string) string {
+	return fmt.Sprintf("TRUNCATE TABLE %s;", d.QuoteIdentifier(table))
+}
+
 // DeleteSQL generates a parameterized DELETE statement for MySQL.
 // The returning param is ignored — MySQL has no RETURNING support.
 func (d *MySQLDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
-	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, mysqlPlaceholder, mysqlLikeOp, 0)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 	}
 	return sql + ";", args
+}
+
+// RawSQL rebinds ? placeholders in a raw SQL string; MySQL keeps ? natively.
+func (d *MySQLDialect) RawSQL(raw string, args []any) (string, []any) {
+	return compileWheres([]Cond{{Kind: CondRaw, Raw: raw, Values: args}}, d.QuoteIdentifier, mysqlPlaceholder, mysqlLikeOp, 0)
+}
+
+// SupportsDistinctOn reports that MySQL does not support DISTINCT ON.
+func (d *MySQLDialect) SupportsDistinctOn() bool {
+	return false
+}
+
+// SupportsFullOuterJoin reports that MySQL does not support FULL OUTER JOIN.
+func (d *MySQLDialect) SupportsFullOuterJoin() bool {
+	return false
 }
 
 // SupportsReturning reports that MySQL does not support RETURNING clauses.

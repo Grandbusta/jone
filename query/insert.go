@@ -20,6 +20,7 @@ type Execer interface {
 type InsertBuilder struct {
 	data             any
 	table            string
+	schemaName       string
 	dialect          dialect.Dialect
 	execer           Execer
 	err              error // deferred error (e.g. from lazy connection)
@@ -65,6 +66,12 @@ func (i *InsertBuilder) Into(table string) *InsertBuilder {
 	return i
 }
 
+// WithSchema qualifies the insert's table with a schema name.
+func (i *InsertBuilder) WithSchema(name string) *InsertBuilder {
+	i.schemaName = name
+	return i
+}
+
 // build normalizes the insert data and generates the SQL and args.
 // returning columns are appended as a RETURNING clause where supported.
 func (i *InsertBuilder) build(returning []string) (string, []any, error) {
@@ -80,13 +87,13 @@ func (i *InsertBuilder) build(returning []string) (string, []any, error) {
 		if len(data) == 0 {
 			return "", nil, fmt.Errorf("no data to insert")
 		}
-		query, args := i.dialect.InsertSQL(i.table, data, opts)
+		query, args := i.dialect.InsertSQL(prefixSchema(i.schemaName, i.table), data, opts)
 		return query, args, nil
 	case []map[string]any:
 		if len(data) == 0 {
 			return "", nil, fmt.Errorf("no data to insert")
 		}
-		query, args := i.dialect.InsertManySQL(i.table, data, opts)
+		query, args := i.dialect.InsertManySQL(prefixSchema(i.schemaName, i.table), data, opts)
 		return query, args, nil
 	default:
 		rv := reflect.ValueOf(i.data)
@@ -102,7 +109,7 @@ func (i *InsertBuilder) build(returning []string) (string, []any, error) {
 			if len(m) == 0 {
 				return "", nil, fmt.Errorf("no data to insert")
 			}
-			query, args := i.dialect.InsertSQL(i.table, m, opts)
+			query, args := i.dialect.InsertSQL(prefixSchema(i.schemaName, i.table), m, opts)
 			return query, args, nil
 		case reflect.Slice:
 			maps, err := structsToMaps(i.data)
@@ -112,7 +119,7 @@ func (i *InsertBuilder) build(returning []string) (string, []any, error) {
 			if len(maps) == 0 {
 				return "", nil, fmt.Errorf("no data to insert")
 			}
-			query, args := i.dialect.InsertManySQL(i.table, maps, opts)
+			query, args := i.dialect.InsertManySQL(prefixSchema(i.schemaName, i.table), maps, opts)
 			return query, args, nil
 		default:
 			return "", nil, fmt.Errorf("Insert expects map[string]any, []map[string]any, struct, or []struct, got %T", i.data)

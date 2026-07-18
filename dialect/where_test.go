@@ -103,7 +103,7 @@ func TestSelectSQL_Wheres(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := tt.dialect.SelectSQL("users", nil, tt.wheres, nil, nil, nil)
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", Wheres: tt.wheres})
 			if sql != tt.wantSQL {
 				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
 			}
@@ -223,7 +223,7 @@ func TestSelectSQL_Groups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := tt.dialect.SelectSQL("users", nil, tt.wheres, nil, nil, nil)
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", Wheres: tt.wheres})
 			if sql != tt.wantSQL {
 				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
 			}
@@ -317,7 +317,7 @@ func TestSelectSQL_OrderBy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := tt.dialect.SelectSQL("users", nil, nil, tt.orders, nil, nil)
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", OrderBys: tt.orders})
 			if sql != tt.wantSQL {
 				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
 			}
@@ -405,5 +405,222 @@ func TestDeleteSQL_ReturnsArgs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(args, []any{7}) {
 		t.Errorf("mysql args = %v, want [7]", args)
+	}
+}
+
+func TestSelectSQL_WhereNot(t *testing.T) {
+	pg := &PostgresDialect{}
+	my := &MySQLDialect{}
+
+	tests := []struct {
+		name     string
+		dialect  Dialect
+		wheres   []Cond
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			name:     "postgres not cmp",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondCmp, Not: true, Column: "role", Op: "=", Value: "admin"}},
+			wantSQL:  `SELECT * FROM "users" WHERE NOT "role" = $1;`,
+			wantArgs: []any{"admin"},
+		},
+		{
+			name:     "mysql not cmp",
+			dialect:  my,
+			wheres:   []Cond{{Kind: CondCmp, Not: true, Column: "role", Op: "=", Value: "admin"}},
+			wantSQL:  "SELECT * FROM `users` WHERE NOT `role` = ?;",
+			wantArgs: []any{"admin"},
+		},
+		{
+			name:    "postgres not group",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "active", Op: "=", Value: true},
+				{Kind: CondGroup, Not: true, Group: []Cond{
+					{Kind: CondCmp, Column: "role", Op: "=", Value: "admin"},
+					{Kind: CondCmp, Or: true, Column: "age", Op: ">", Value: 65},
+				}},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "active" = $1 AND NOT ("role" = $2 OR "age" > $3);`,
+			wantArgs: []any{true, "admin", 65},
+		},
+		{
+			name:    "postgres not empty group vanishes",
+			dialect: pg,
+			wheres:  []Cond{{Kind: CondGroup, Not: true}},
+			wantSQL: `SELECT * FROM "users";`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", Wheres: tt.wheres})
+			if sql != tt.wantSQL {
+				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
+			}
+			if len(tt.wantArgs) == 0 && len(args) != 0 {
+				t.Errorf("args = %v, want none", args)
+			}
+			if len(tt.wantArgs) > 0 && !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestSelectSQL_BetweenAndExists(t *testing.T) {
+	pg := &PostgresDialect{}
+	my := &MySQLDialect{}
+	one := 1
+
+	tests := []struct {
+		name     string
+		dialect  Dialect
+		wheres   []Cond
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			name:     "postgres between",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondBetween, Column: "age", Values: []any{18, 65}}},
+			wantSQL:  `SELECT * FROM "users" WHERE "age" BETWEEN $1 AND $2;`,
+			wantArgs: []any{18, 65},
+		},
+		{
+			name:     "mysql not between",
+			dialect:  my,
+			wheres:   []Cond{{Kind: CondBetween, Not: true, Column: "age", Values: []any{18, 65}}},
+			wantSQL:  "SELECT * FROM `users` WHERE `age` NOT BETWEEN ? AND ?;",
+			wantArgs: []any{18, 65},
+		},
+		{
+			name:    "postgres exists subselect renumbers across boundary",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "active", Op: "=", Value: true},
+				{Kind: CondExists, Sub: &SubSelect{
+					Table:   "orders",
+					Columns: []string{"1"},
+					Wheres: []Cond{
+						{Kind: CondRaw, Raw: "orders.user_id = users.id"},
+						{Kind: CondCmp, Column: "status", Op: "=", Value: "paid"},
+					},
+				}},
+				{Kind: CondCmp, Column: "plan", Op: "=", Value: "pro"},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "active" = $1 AND EXISTS (SELECT "1" FROM "orders" WHERE orders.user_id = users.id AND "status" = $2) AND "plan" = $3;`,
+			wantArgs: []any{true, "paid", "pro"},
+		},
+		{
+			name:    "mysql not exists with limit no trailing semicolon inside",
+			dialect: my,
+			wheres: []Cond{
+				{Kind: CondExists, Not: true, Sub: &SubSelect{
+					Table: "orders",
+					Wheres: []Cond{
+						{Kind: CondCmp, Column: "status", Op: "=", Value: "open"},
+					},
+					Limit: &one,
+				}},
+			},
+			wantSQL:  "SELECT * FROM `users` WHERE NOT EXISTS (SELECT * FROM `orders` WHERE `status` = ? LIMIT 1);",
+			wantArgs: []any{"open"},
+		},
+		{
+			name:    "postgres raw exists rebinds placeholders",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "active", Op: "=", Value: true},
+				{Kind: CondExists, Raw: "SELECT 1 FROM orders WHERE user_id = users.id AND status = ?", Values: []any{"paid"}},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "active" = $1 AND EXISTS (SELECT 1 FROM orders WHERE user_id = users.id AND status = $2);`,
+			wantArgs: []any{true, "paid"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", Wheres: tt.wheres})
+			if sql != tt.wantSQL {
+				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
+			}
+			if !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestSelectSQL_Like(t *testing.T) {
+	pg := &PostgresDialect{}
+	my := &MySQLDialect{}
+
+	tests := []struct {
+		name     string
+		dialect  Dialect
+		wheres   []Cond
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			name:     "postgres like is case-sensitive",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondLike, Column: "name", Value: "Jo%"}},
+			wantSQL:  `SELECT * FROM "users" WHERE "name" LIKE $1;`,
+			wantArgs: []any{"Jo%"},
+		},
+		{
+			name:     "postgres ilike is case-insensitive",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondLike, Insensitive: true, Column: "name", Value: "jo%"}},
+			wantSQL:  `SELECT * FROM "users" WHERE "name" ILIKE $1;`,
+			wantArgs: []any{"jo%"},
+		},
+		{
+			name:     "mysql like binary is case-sensitive",
+			dialect:  my,
+			wheres:   []Cond{{Kind: CondLike, Column: "name", Value: "Jo%"}},
+			wantSQL:  "SELECT * FROM `users` WHERE `name` LIKE BINARY ?;",
+			wantArgs: []any{"Jo%"},
+		},
+		{
+			name:     "mysql plain like is case-insensitive",
+			dialect:  my,
+			wheres:   []Cond{{Kind: CondLike, Insensitive: true, Column: "name", Value: "jo%"}},
+			wantSQL:  "SELECT * FROM `users` WHERE `name` LIKE ?;",
+			wantArgs: []any{"jo%"},
+		},
+		{
+			name:     "postgres not like",
+			dialect:  pg,
+			wheres:   []Cond{{Kind: CondLike, Not: true, Column: "name", Value: "spam%"}},
+			wantSQL:  `SELECT * FROM "users" WHERE NOT "name" LIKE $1;`,
+			wantArgs: []any{"spam%"},
+		},
+		{
+			name:    "postgres like numbering continues",
+			dialect: pg,
+			wheres: []Cond{
+				{Kind: CondCmp, Column: "active", Op: "=", Value: true},
+				{Kind: CondLike, Or: true, Insensitive: true, Column: "email", Value: "%@x.com"},
+			},
+			wantSQL:  `SELECT * FROM "users" WHERE "active" = $1 OR "email" ILIKE $2;`,
+			wantArgs: []any{true, "%@x.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, args := tt.dialect.SelectSQL(SubSelect{Table: "users", Wheres: tt.wheres})
+			if sql != tt.wantSQL {
+				t.Errorf("SQL = %q, want %q", sql, tt.wantSQL)
+			}
+			if !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", args, tt.wantArgs)
+			}
+		})
 	}
 }

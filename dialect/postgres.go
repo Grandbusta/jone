@@ -32,8 +32,12 @@ func (d *PostgresDialect) FormatDSN(conn config.Connection) string {
 }
 
 // QuoteIdentifier quotes an identifier with double quotes for PostgreSQL.
+// QuoteIdentifier quotes an identifier, treating dots as qualification:
+// "users.id" → "users"."id". A * segment stays unquoted ("users.*").
 func (d *PostgresDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf(`"%s"`, name)
+	return quoteQualified(name, func(part string) string {
+		return `"` + part + `"`
+	})
 }
 
 // CreateTableSQL generates a CREATE TABLE statement for PostgreSQL.
@@ -498,37 +502,24 @@ func pgPlaceholder(n int) string {
 	return fmt.Sprintf("$%d", n)
 }
 
+// pgLikeOp returns the PostgreSQL LIKE operator: ILIKE for case-insensitive
+// matches, LIKE for case-sensitive.
+func pgLikeOp(insensitive bool) string {
+	if insensitive {
+		return "ILIKE"
+	}
+	return "LIKE"
+}
+
 // SelectSQL generates a parameterized SELECT statement for PostgreSQL.
-func (d *PostgresDialect) SelectSQL(table string, columns []string, wheres []Cond, orderBys []OrderClause, limit *int, offset *int) (string, []any) {
-	cols := "*"
-	if len(columns) > 0 {
-		quoted := make([]string, len(columns))
-		for i, c := range columns {
-			if c == "*" {
-				quoted[i] = c
-			} else {
-				quoted[i] = d.QuoteIdentifier(c)
-			}
-		}
-		cols = strings.Join(quoted, ", ")
-	}
-
-	sql := fmt.Sprintf("SELECT %s FROM %s", cols, d.QuoteIdentifier(table))
-
-	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
-	if whereSQL != "" {
-		sql += " WHERE " + whereSQL
-	}
-	if len(orderBys) > 0 {
-		sql += " ORDER BY " + compileOrderBys(orderBys, d.QuoteIdentifier)
-	}
-	if limit != nil {
-		sql += fmt.Sprintf(" LIMIT %d", *limit)
-	}
-	if offset != nil {
-		sql += fmt.Sprintf(" OFFSET %d", *offset)
-	}
+func (d *PostgresDialect) SelectSQL(sub SubSelect) (string, []any) {
+	sql, args := selectSQL(sub, d.QuoteIdentifier, pgPlaceholder, pgLikeOp, 0)
 	return sql + ";", args
+}
+
+// AggregateSQL generates a parameterized single-value aggregate SELECT for PostgreSQL.
+func (d *PostgresDialect) AggregateSQL(table, fn, column string, wheres []Cond) (string, []any) {
+	return aggregateSQL(table, fn, column, wheres, d.QuoteIdentifier, pgPlaceholder, pgLikeOp)
 }
 
 // UpdateSQL generates a parameterized UPDATE statement for PostgreSQL.
@@ -551,7 +542,7 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 
 	sql := fmt.Sprintf("UPDATE %s SET %s", d.QuoteIdentifier(table), strings.Join(setClauses, ", "))
 
-	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, paramIdx)
+	whereSQL, whereArgs := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, pgLikeOp, paramIdx)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 		args = append(args, whereArgs...)
@@ -560,15 +551,35 @@ func (d *PostgresDialect) UpdateSQL(table string, set map[string]any, wheres []C
 	return sql + ";", args
 }
 
+// TruncateSQL generates a TRUNCATE TABLE statement for PostgreSQL.
+func (d *PostgresDialect) TruncateSQL(table string) string {
+	return fmt.Sprintf("TRUNCATE TABLE %s;", d.QuoteIdentifier(table))
+}
+
 // DeleteSQL generates a parameterized DELETE statement for PostgreSQL.
 func (d *PostgresDialect) DeleteSQL(table string, wheres []Cond, returning []string) (string, []any) {
 	sql := fmt.Sprintf("DELETE FROM %s", d.QuoteIdentifier(table))
-	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, 0)
+	whereSQL, args := compileWheres(wheres, d.QuoteIdentifier, pgPlaceholder, pgLikeOp, 0)
 	if whereSQL != "" {
 		sql += " WHERE " + whereSQL
 	}
 	sql += returningClause(returning, d.QuoteIdentifier)
 	return sql + ";", args
+}
+
+// RawSQL rebinds ? placeholders in a raw SQL string to $n placeholders.
+func (d *PostgresDialect) RawSQL(raw string, args []any) (string, []any) {
+	return compileWheres([]Cond{{Kind: CondRaw, Raw: raw, Values: args}}, d.QuoteIdentifier, pgPlaceholder, pgLikeOp, 0)
+}
+
+// SupportsDistinctOn reports that PostgreSQL supports DISTINCT ON.
+func (d *PostgresDialect) SupportsDistinctOn() bool {
+	return true
+}
+
+// SupportsFullOuterJoin reports that PostgreSQL supports FULL OUTER JOIN.
+func (d *PostgresDialect) SupportsFullOuterJoin() bool {
+	return true
 }
 
 // SupportsReturning reports that PostgreSQL supports RETURNING clauses.

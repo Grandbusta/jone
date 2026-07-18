@@ -95,8 +95,8 @@ func TestExecReturning_UpdateAndDelete(t *testing.T) {
 
 	pg := &dialect.PostgresDialect{}
 
-	rows, err := NewUpdateBuilder("users", pg, db, nil).
-		Set("active", false).Where("age", ">", 90).ExecReturning("id", "name")
+	rows, err := NewUpdateBuilder("users", []any{"active", false}, pg, db, nil).
+		Where("age", ">", 90).ExecReturning("id", "name")
 	if err != nil {
 		t.Fatalf("update ExecReturning() error: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestExecReturning_Errors(t *testing.T) {
 	}
 
 	// Update's empty-SET guard still applies.
-	_, err = NewUpdateBuilder("users", pg, db, nil).Where("id", 1).ExecReturning("id")
+	_, err = NewUpdateBuilder("users", nil, pg, db, nil).Where("id", 1).ExecReturning("id")
 	if err == nil || !strings.Contains(err.Error(), "no values to update") {
 		t.Errorf("expected empty-SET error, got %v", err)
 	}

@@ -39,6 +39,21 @@ type Column = schema.Column
 //	})
 type WhereGroup = query.WhereGroup
 
+// SelectBuilder builds SELECT queries (re-exported from query package).
+type SelectBuilder = query.SelectBuilder
+
+// Select starts a standalone SELECT builder, mainly for use as an EXISTS
+// subquery or, named via As(), as a derived table:
+//
+//	db.Select("*").From("users").
+//	    WhereExists(jone.Select("1").From("orders").WhereRaw("orders.user_id = users.id"))
+//
+//	sub := jone.Select("user_id").From("orders").GroupBy("user_id").As("t")
+//	db.Select("*").From(sub).Exec()
+//
+// To run queries, use db.Select() on a connected instance instead.
+var Select = query.Select
+
 // Core types (re-exported from types package)
 type CoreTable = types.Table
 type CoreColumn = types.Column
