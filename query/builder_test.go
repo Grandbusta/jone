@@ -1044,6 +1044,180 @@ func TestWhereExists_SubqueryCarriesGroupBy(t *testing.T) {
 	}
 }
 
+// --- WithSchema tests ---
+
+func TestWithSchema_SelectFromAndJoins(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder(nil, pg, nil, nil).
+		WithSchema("analytics").
+		From("events as e").
+		Join("orders as o", "e.order_id", "o.id").
+		JoinRaw("LEFT JOIN raw_t ON raw_t.id = e.id").
+		ToSQL()
+	want := `SELECT * FROM "analytics"."events" AS "e" INNER JOIN "analytics"."orders" AS "o" ON "e"."order_id" = "o"."id" LEFT JOIN raw_t ON raw_t.id = e.id;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestWithSchema_OtherBuilders(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+	my := &dialect.MySQLDialect{}
+
+	sql, _ := NewUpdateBuilder("users", []any{"active", false}, pg, nil, nil).
+		WithSchema("crm").Where("id", 1).ToSQL()
+	if want := `UPDATE "crm"."users" SET "active" = $1 WHERE "id" = $2;`; sql != want {
+		t.Errorf("update SQL = %q, want %q", sql, want)
+	}
+
+	sql, _ = NewDeleteBuilder("users", my, nil, nil).WithSchema("crm").ToSQL()
+	if want := "DELETE FROM `crm`.`users`;"; sql != want {
+		t.Errorf("delete SQL = %q, want %q", sql, want)
+	}
+
+	sql, _ = NewTruncateBuilder("sessions", pg, nil, nil).WithSchema("crm").ToSQL()
+	if want := `TRUNCATE TABLE "crm"."sessions";`; sql != want {
+		t.Errorf("truncate SQL = %q, want %q", sql, want)
+	}
+
+	sql, _ = NewInsertBuilder(map[string]any{"name": "x"}, pg, nil, nil).
+		Into("users").WithSchema("crm").ToSQL()
+	if !strings.HasPrefix(sql, `INSERT INTO "crm"."users"`) {
+		t.Errorf("insert SQL = %q, want INSERT INTO \"crm\".\"users\" prefix", sql)
+	}
+}
+
+// --- Column alias tests ---
+
+func TestSelect_ColumnAliases(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder([]string{"name as n", "users.email as e", "*"}, pg, nil, nil).
+		From("users").ToSQL()
+	want := `SELECT "name" AS "n", "users"."email" AS "e", * FROM "users";`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+// --- Locking tests ---
+
+func TestForUpdate_And_ForShareModifiers(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	sql, _ := NewSelectBuilder(nil, pg, nil, nil).
+		From("jobs").Where("status", "queued").Limit(1).
+		ForUpdate().SkipLocked().
+		ToSQL()
+	want := `SELECT * FROM "jobs" WHERE "status" = $1 LIMIT 1 FOR UPDATE SKIP LOCKED;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+
+	sql, _ = NewSelectBuilder(nil, pg, nil, nil).
+		From("accounts").ForShare().NoWait().ToSQL()
+	want = `SELECT * FROM "accounts" FOR SHARE NOWAIT;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+}
+
+func TestLockModifier_RequiresLock(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	_, err := NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("jobs").SkipLocked().Exec()
+	if err == nil || !strings.Contains(err.Error(), "SkipLocked requires") {
+		t.Errorf("expected modifier error, got %v", err)
+	}
+}
+
+// --- CTE tests ---
+
+func TestWith_BuilderForm_ParamNumbering(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	totals := Select("user_id").From("orders").Where("status", "paid").GroupBy("user_id")
+	sql, args := NewSelectBuilder(nil, pg, nil, nil).
+		With("totals", totals).
+		From("totals").
+		Where("user_id", ">", 10).
+		ToSQL()
+	want := `WITH "totals" AS (SELECT "user_id" FROM "orders" WHERE "status" = $1 GROUP BY "user_id") SELECT * FROM "totals" WHERE "user_id" > $2;`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 2 || args[0] != "paid" || args[1] != 10 {
+		t.Errorf("args = %v, want [paid 10]", args)
+	}
+}
+
+func TestWithRecursive_RawForm_MultipleCTEs(t *testing.T) {
+	my := &dialect.MySQLDialect{}
+
+	sql, args := NewSelectBuilder(nil, my, nil, nil).
+		WithRecursive("nums", "SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < ?", 10).
+		With("labels", "SELECT 'x' AS label").
+		From("nums").
+		ToSQL()
+	want := "WITH RECURSIVE `nums` AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < ?), `labels` AS (SELECT 'x' AS label) SELECT * FROM `nums`;"
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 1 || args[0] != 10 {
+		t.Errorf("args = %v, want [10]", args)
+	}
+}
+
+func TestWith_Errors(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	_, err := NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		With("t", 42).From("t").Exec()
+	if err == nil || !strings.Contains(err.Error(), "With expects") {
+		t.Errorf("expected type error, got %v", err)
+	}
+
+	_, err = NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		With("t", "SELECT ? AND ?", 1).From("t").Exec()
+	if err == nil || !strings.Contains(err.Error(), "placeholders") {
+		t.Errorf("expected placeholder count error, got %v", err)
+	}
+}
+
+// --- Union tests ---
+
+func TestUnion_And_UnionAll_ParamNumbering(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	archived := Select("name").From("archived_users").Where("deleted_at", ">", "2020-01-01")
+	sql, args := NewSelectBuilder([]string{"name"}, pg, nil, nil).
+		From("users").
+		Where("active", true).
+		Union(archived).
+		UnionAll("SELECT name FROM invited_users WHERE invited_by = ?", 7).
+		OrderBy("name").
+		ToSQL()
+	want := `SELECT "name" FROM "users" WHERE "active" = $1 UNION SELECT "name" FROM "archived_users" WHERE "deleted_at" > $2 UNION ALL SELECT name FROM invited_users WHERE invited_by = $3 ORDER BY "name";`
+	if sql != want {
+		t.Errorf("SQL = %q, want %q", sql, want)
+	}
+	if len(args) != 3 || args[0] != true || args[1] != "2020-01-01" || args[2] != 7 {
+		t.Errorf("args = %v, want [true 2020-01-01 7]", args)
+	}
+}
+
+func TestUnion_Errors(t *testing.T) {
+	pg := &dialect.PostgresDialect{}
+
+	_, err := NewSelectBuilder(nil, pg, &recordingExecer{}, nil).
+		From("users").Union(Select("1")).Exec() // subquery has no table
+	if err == nil || !strings.Contains(err.Error(), "has no table") {
+		t.Errorf("expected no-table error, got %v", err)
+	}
+}
+
 // --- Join tests ---
 
 func TestJoin_InnerWithAliasAndQualifiedColumns(t *testing.T) {

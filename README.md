@@ -352,6 +352,15 @@ rows, err := jonecfg.DB.Select("users.name", "o.total").From("users").
 sub := jone.Select("user_id").From("orders").GroupBy("user_id").As("t")
 rows, err := jonecfg.DB.Select("*").From(sub).Exec()
 
+// CTEs, unions, and row locking
+rows, err = jonecfg.DB.Select("*").From("totals").
+    With("totals", jone.Select("user_id").From("orders").GroupBy("user_id")).
+    Exec()
+rows, err = jonecfg.DB.Select("name").From("users").
+    Union(jone.Select("name").From("archived_users")).Exec()
+row, err = jonecfg.DB.Select("*").From("jobs").
+    Where("status", "queued").ForUpdate().SkipLocked().First()
+
 // UPDATE — the data is passed directly to Update; SET and WHERE are both
 // parameterized
 result, err := jonecfg.DB.Update("users", map[string]any{

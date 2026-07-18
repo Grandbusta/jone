@@ -332,30 +332,41 @@ func likeCond(or, insensitive bool, column string, pattern any) dialect.Cond {
 	return dialect.Cond{Kind: dialect.CondLike, Or: or, Insensitive: insensitive, Column: column, Value: pattern}
 }
 
-// parseExists builds an EXISTS condition from either a *SelectBuilder
-// subquery or a raw SQL string with ? placeholders bound to args.
-func parseExists(or, not bool, subquery any, args []any) (dialect.Cond, error) {
+// parseSubquery normalizes a subquery argument for name (used in error
+// messages): a *SelectBuilder yields sub, a raw SQL string with ?
+// placeholders bound to args yields raw+values.
+func parseSubquery(name string, subquery any, args []any) (sub *dialect.SubSelect, raw string, values []any, err error) {
 	switch sq := subquery.(type) {
 	case *SelectBuilder:
 		if len(args) > 0 {
-			return dialect.Cond{}, fmt.Errorf("WhereExists args are only used with a raw SQL subquery, got %d args with a *SelectBuilder", len(args))
+			return nil, "", nil, fmt.Errorf("%s args are only used with a raw SQL subquery, got %d args with a *SelectBuilder", name, len(args))
 		}
 		if sq.err != nil {
-			return dialect.Cond{}, sq.err
+			return nil, "", nil, sq.err
 		}
 		if sq.table == "" && sq.fromSub == nil {
-			return dialect.Cond{}, fmt.Errorf("WhereExists subquery has no table: call From() on it")
+			return nil, "", nil, fmt.Errorf("%s subquery has no table: call From() on it", name)
 		}
-		sub := sq.subSelect()
-		return dialect.Cond{Kind: dialect.CondExists, Or: or, Not: not, Sub: &sub}, nil
+		s := sq.subSelect()
+		return &s, "", nil, nil
 	case string:
 		if n := strings.Count(sq, "?"); n != len(args) {
-			return dialect.Cond{}, fmt.Errorf("WhereExists subquery has %d placeholders but %d args", n, len(args))
+			return nil, "", nil, fmt.Errorf("%s subquery has %d placeholders but %d args", name, n, len(args))
 		}
-		return dialect.Cond{Kind: dialect.CondExists, Or: or, Not: not, Raw: sq, Values: args}, nil
+		return nil, sq, args, nil
 	default:
-		return dialect.Cond{}, fmt.Errorf("WhereExists expects a *SelectBuilder or a raw SQL string, got %T", subquery)
+		return nil, "", nil, fmt.Errorf("%s expects a *SelectBuilder or a raw SQL string, got %T", name, subquery)
 	}
+}
+
+// parseExists builds an EXISTS condition from either a *SelectBuilder
+// subquery or a raw SQL string with ? placeholders bound to args.
+func parseExists(or, not bool, subquery any, args []any) (dialect.Cond, error) {
+	sub, raw, values, err := parseSubquery("WhereExists", subquery, args)
+	if err != nil {
+		return dialect.Cond{}, err
+	}
+	return dialect.Cond{Kind: dialect.CondExists, Or: or, Not: not, Sub: sub, Raw: raw, Values: values}, nil
 }
 
 // scanRowMaps drains rows into maps keyed by column name.
@@ -411,15 +422,30 @@ func checkReturning(d dialect.Dialect, cols []string) error {
 	return nil
 }
 
+// prefixSchema qualifies a table reference with a schema, relying on
+// dot-aware identifier quoting at compile time. Alias forms ("orders as o")
+// work unchanged since the prefix lands on the table part.
+func prefixSchema(schemaName, table string) string {
+	if schemaName == "" || table == "" {
+		return table
+	}
+	return schemaName + "." + table
+}
+
 // SelectBuilder builds SELECT queries.
 type SelectBuilder struct {
 	table      string
+	schemaName string
 	fromSub    *SelectBuilder // derived-table FROM; wins over table
 	alias      string         // name for this query when nested via From
 	columns    []string
 	distinct   bool
 	distinctOn []string
+	ctes       []dialect.CTE
 	joins      []dialect.JoinClause
+	unions     []dialect.UnionClause
+	lock       string // "FOR UPDATE" / "FOR SHARE"
+	lockMod    string // "SKIP LOCKED" / "NOWAIT"
 	where      []dialect.Cond
 	groupBy    []dialect.GroupClause
 	having     []dialect.Cond
@@ -434,12 +460,29 @@ type SelectBuilder struct {
 // subSelect gathers the builder's state into the neutral dialect form used
 // both for compilation and as an EXISTS subquery.
 func (s *SelectBuilder) subSelect() dialect.SubSelect {
+	lock := s.lock
+	if lock != "" && s.lockMod != "" {
+		lock += " " + s.lockMod
+	}
+	joins := s.joins
+	if s.schemaName != "" && len(joins) > 0 {
+		joins = make([]dialect.JoinClause, len(s.joins))
+		copy(joins, s.joins)
+		for i := range joins {
+			if joins[i].Raw == "" {
+				joins[i].Table = prefixSchema(s.schemaName, joins[i].Table)
+			}
+		}
+	}
 	sub := dialect.SubSelect{
-		Table:      s.table,
+		CTEs:       s.ctes,
+		Unions:     s.unions,
+		Lock:       lock,
+		Table:      prefixSchema(s.schemaName, s.table),
 		Columns:    s.columns,
 		Distinct:   s.distinct,
 		DistinctOn: s.distinctOn,
-		Joins:      s.joins,
+		Joins:      joins,
 		Wheres:     s.where,
 		GroupBys:   s.groupBy,
 		Havings:    s.having,
@@ -561,11 +604,106 @@ func (s *SelectBuilder) JoinRaw(raw string, args ...any) *SelectBuilder {
 	return s
 }
 
+// with appends a CTE clause in builder or raw form.
+func (s *SelectBuilder) with(name string, recursive bool, subquery any, args []any, method string) *SelectBuilder {
+	sub, raw, values, err := parseSubquery(method, subquery, args)
+	if err != nil {
+		s.setErr(err)
+		return s
+	}
+	s.ctes = append(s.ctes, dialect.CTE{Name: name, Recursive: recursive, Sub: sub, Raw: raw, Values: values})
+	return s
+}
+
+// With adds a WITH clause (common table expression) that the query can then
+// select from by name. The body is a *SelectBuilder or a raw SQL string with
+// ? placeholders bound to args:
+//
+//	db.Select("*").From("totals").
+//	    With("totals", jone.Select("user_id").From("orders").GroupBy("user_id"))
+func (s *SelectBuilder) With(name string, subquery any, args ...any) *SelectBuilder {
+	return s.with(name, false, subquery, args, "With")
+}
+
+// WithRecursive is With using WITH RECURSIVE, for CTEs that reference
+// themselves. RECURSIVE applies to the statement's whole CTE list.
+func (s *SelectBuilder) WithRecursive(name string, subquery any, args ...any) *SelectBuilder {
+	return s.with(name, true, subquery, args, "WithRecursive")
+}
+
+// union appends a UNION clause in builder or raw form.
+func (s *SelectBuilder) union(all bool, subquery any, args []any, method string) *SelectBuilder {
+	sub, raw, values, err := parseSubquery(method, subquery, args)
+	if err != nil {
+		s.setErr(err)
+		return s
+	}
+	s.unions = append(s.unions, dialect.UnionClause{All: all, Sub: sub, Raw: raw, Values: values})
+	return s
+}
+
+// Union combines this query with another via UNION (duplicates removed).
+// The other query is a *SelectBuilder or a raw SQL string with ?
+// placeholders bound to args. ORDER BY, LIMIT and OFFSET on this builder
+// apply to the combined result.
+func (s *SelectBuilder) Union(subquery any, args ...any) *SelectBuilder {
+	return s.union(false, subquery, args, "Union")
+}
+
+// UnionAll is Union keeping duplicates.
+func (s *SelectBuilder) UnionAll(subquery any, args ...any) *SelectBuilder {
+	return s.union(true, subquery, args, "UnionAll")
+}
+
+// ForUpdate locks the selected rows for update (SELECT ... FOR UPDATE).
+// Use inside a transaction.
+func (s *SelectBuilder) ForUpdate() *SelectBuilder {
+	s.lock = "FOR UPDATE"
+	return s
+}
+
+// ForShare takes a shared lock on the selected rows (SELECT ... FOR SHARE).
+// Use inside a transaction.
+func (s *SelectBuilder) ForShare() *SelectBuilder {
+	s.lock = "FOR SHARE"
+	return s
+}
+
+// SkipLocked skips rows that are already locked instead of waiting.
+// Call after ForUpdate or ForShare.
+func (s *SelectBuilder) SkipLocked() *SelectBuilder {
+	if s.lock == "" {
+		s.setErr(fmt.Errorf("SkipLocked requires ForUpdate or ForShare first"))
+		return s
+	}
+	s.lockMod = "SKIP LOCKED"
+	return s
+}
+
+// NoWait errors immediately if a selected row is already locked instead of
+// waiting. Call after ForUpdate or ForShare.
+func (s *SelectBuilder) NoWait() *SelectBuilder {
+	if s.lock == "" {
+		s.setErr(fmt.Errorf("NoWait requires ForUpdate or ForShare first"))
+		return s
+	}
+	s.lockMod = "NOWAIT"
+	return s
+}
+
 // As names this query for use as a derived table in an outer From().
 // The alias is required by both PostgreSQL and MySQL; it has no effect when
 // the query is executed directly.
 func (s *SelectBuilder) As(alias string) *SelectBuilder {
 	s.alias = alias
+	return s
+}
+
+// WithSchema qualifies the query's tables with a schema name: the FROM table
+// and structured join tables (JoinRaw fragments are used verbatim). Note this
+// also covers joins, unlike knex.
+func (s *SelectBuilder) WithSchema(name string) *SelectBuilder {
+	s.schemaName = name
 	return s
 }
 
@@ -1037,7 +1175,7 @@ func (s *SelectBuilder) aggregate(fn, column string, dest any) error {
 	if column == "" && fn != "COUNT" {
 		return fmt.Errorf("%s requires a column", fn)
 	}
-	sqlStr, args := s.dialect.AggregateSQL(s.table, fn, column, s.where)
+	sqlStr, args := s.dialect.AggregateSQL(prefixSchema(s.schemaName, s.table), fn, column, s.where)
 	return s.execer.QueryRow(sqlStr, args...).Scan(dest)
 }
 
@@ -1095,12 +1233,13 @@ func (s *SelectBuilder) Max(column string) (any, error) {
 
 // UpdateBuilder builds UPDATE queries.
 type UpdateBuilder struct {
-	table   string
-	set     map[string]any
-	where   []dialect.Cond
-	dialect dialect.Dialect
-	execer  Execer
-	err     error
+	table      string
+	schemaName string
+	set        map[string]any
+	where      []dialect.Cond
+	dialect    dialect.Dialect
+	execer     Execer
+	err        error
 }
 
 // NewUpdateBuilder creates a dialect-aware UpdateBuilder (used by Schema).
@@ -1186,6 +1325,12 @@ func (u *UpdateBuilder) step(column, op string, amount []int) *UpdateBuilder {
 		n = amount[0]
 	}
 	u.set[column] = types.RawExpr{Expr: fmt.Sprintf("%s %s %d", u.dialect.QuoteIdentifier(column), op, n)}
+	return u
+}
+
+// WithSchema qualifies the update's table with a schema name.
+func (u *UpdateBuilder) WithSchema(name string) *UpdateBuilder {
+	u.schemaName = name
 	return u
 }
 
@@ -1413,7 +1558,7 @@ func (u *UpdateBuilder) ToSQL() (string, []any) {
 	if u.dialect == nil {
 		return "", nil
 	}
-	return u.dialect.UpdateSQL(u.table, u.set, u.where, nil)
+	return u.dialect.UpdateSQL(prefixSchema(u.schemaName, u.table), u.set, u.where, nil)
 }
 
 // check validates the builder state before execution.
@@ -1448,16 +1593,17 @@ func (u *UpdateBuilder) ExecReturning(columns ...string) ([]map[string]any, erro
 	if err := checkReturning(u.dialect, columns); err != nil {
 		return nil, err
 	}
-	sqlStr, args := u.dialect.UpdateSQL(u.table, u.set, u.where, columns)
+	sqlStr, args := u.dialect.UpdateSQL(prefixSchema(u.schemaName, u.table), u.set, u.where, columns)
 	return execReturning(u.execer, sqlStr, args)
 }
 
 // TruncateBuilder builds TRUNCATE TABLE statements.
 type TruncateBuilder struct {
-	table   string
-	dialect dialect.Dialect
-	execer  Execer
-	err     error
+	table      string
+	schemaName string
+	dialect    dialect.Dialect
+	execer     Execer
+	err        error
 }
 
 // NewTruncateBuilder creates a dialect-aware TruncateBuilder (used by Schema).
@@ -1465,12 +1611,18 @@ func NewTruncateBuilder(table string, d dialect.Dialect, execer Execer, err erro
 	return &TruncateBuilder{table: table, dialect: d, execer: execer, err: err}
 }
 
+// WithSchema qualifies the truncated table with a schema name.
+func (t *TruncateBuilder) WithSchema(name string) *TruncateBuilder {
+	t.schemaName = name
+	return t
+}
+
 // ToSQL generates the TRUNCATE SQL.
 func (t *TruncateBuilder) ToSQL() (string, []any) {
 	if t.dialect == nil {
 		return "", nil
 	}
-	return t.dialect.TruncateSQL(t.table), nil
+	return t.dialect.TruncateSQL(prefixSchema(t.schemaName, t.table)), nil
 }
 
 // Exec executes the TRUNCATE and returns the result.
@@ -1487,11 +1639,12 @@ func (t *TruncateBuilder) Exec() (sql.Result, error) {
 
 // DeleteBuilder builds DELETE queries.
 type DeleteBuilder struct {
-	table   string
-	where   []dialect.Cond
-	dialect dialect.Dialect
-	execer  Execer
-	err     error
+	table      string
+	schemaName string
+	where      []dialect.Cond
+	dialect    dialect.Dialect
+	execer     Execer
+	err        error
 }
 
 // NewDeleteBuilder creates a dialect-aware DeleteBuilder (used by Schema).
@@ -1502,6 +1655,12 @@ func NewDeleteBuilder(table string, d dialect.Dialect, execer Execer, err error)
 // Delete starts building a DELETE query.
 func Delete(table string) *DeleteBuilder {
 	return &DeleteBuilder{table: table}
+}
+
+// WithSchema qualifies the delete's table with a schema name.
+func (d *DeleteBuilder) WithSchema(name string) *DeleteBuilder {
+	d.schemaName = name
+	return d
 }
 
 // setErr records a deferred error without masking an earlier one.
@@ -1728,7 +1887,7 @@ func (d *DeleteBuilder) ToSQL() (string, []any) {
 	if d.dialect == nil {
 		return "", nil
 	}
-	return d.dialect.DeleteSQL(d.table, d.where, nil)
+	return d.dialect.DeleteSQL(prefixSchema(d.schemaName, d.table), d.where, nil)
 }
 
 // check validates the builder state before execution.
@@ -1760,6 +1919,6 @@ func (d *DeleteBuilder) ExecReturning(columns ...string) ([]map[string]any, erro
 	if err := checkReturning(d.dialect, columns); err != nil {
 		return nil, err
 	}
-	sqlStr, args := d.dialect.DeleteSQL(d.table, d.where, columns)
+	sqlStr, args := d.dialect.DeleteSQL(prefixSchema(d.schemaName, d.table), d.where, columns)
 	return execReturning(d.execer, sqlStr, args)
 }
